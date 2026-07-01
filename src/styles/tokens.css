@@ -1,0 +1,109 @@
+/*
+ * Design tokens — a deliberately small, white-first system.
+ * Rationale (see docs/design-rationale.md):
+ *  - Few colours + generous neutrals keep visual noise low so attention stays
+ *    on the 3D task, not the chrome.
+ *  - A single accent colour marks the one primary action per screen.
+ *  - 8px spacing grid + a small type scale enforce consistent rhythm.
+ *  - Text/interactive contrast targets WCAG AA (>= 4.5:1 on white).
+ */
+:root {
+  /* surfaces (white-first, layered by subtle elevation, not colour) */
+  --surface-app: #f7f8fa;
+  --surface-card: #ffffff;
+  --surface-sunken: #f0f2f5;
+
+  /* neutrals / text */
+  --ink-900: #16181d; /* primary text */
+  --ink-700: #3c4149; /* secondary text */
+  --ink-500: #6b7280; /* muted / captions */
+  --ink-300: #c7ccd4; /* borders (decorative) */
+  --ink-200: #e3e6eb; /* hairlines */
+
+  /* single accent (AA on white) + states */
+  --accent: #2f6df6;
+  --accent-hover: #245ad6;
+  --accent-soft: #e8f0ff;
+
+  /* semantic */
+  --ok: #1f9d55;
+  --ok-soft: #e6f6ec;
+  --bad: #d64545;
+  --bad-soft: #fceaea;
+
+  /*
+   * Quiz instruction palette. Hue is kept from the accent, but saturation is
+   * cut to ~30% of the original so the block reads calm (less visual noise);
+   * text lightness is lowered to preserve AA contrast (goal: fewer misreads).
+   */
+  --instr-bg: hsl(219, 30%, 95%);
+  --instr-text: hsl(221, 26%, 40%);
+  --instr-muted: hsl(221, 14%, 50%);
+
+  /* angle sign colours (+ / −) — chosen for direction legibility */
+  --sign-plus: #1f9d55;
+  --sign-minus: #d64545;
+
+  /* spacing (8px grid; 4px half-step) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* type scale */
+  --fs-caption: 12px;
+  --fs-sm: 14px;
+  --fs-base: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 28px;
+
+  /* quiz media sizing: the 見本 (sample) is the largest reference; option
+     images, the drawing canvas and the answer are capped at 90% of it. */
+  --sample-size: 360px;
+  --work-img-size: calc(var(--sample-size) * 0.9);
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-2: 0 4px 12px rgba(16, 24, 40, 0.08);
+
+  --font: system-ui, -apple-system, 'Segoe UI', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  color: var(--ink-900);
+  background: var(--surface-app);
+  -webkit-font-smoothing: antialiased;
+  /*
+   * Page-wide pointer policy: allow taps/clicks (incl. pen) to behave normally
+   * while suppressing the 300ms delay and double-tap zoom. Individual drawing
+   * surfaces override this with `touch-action: none`.
+   */
+  touch-action: manipulation;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Visible focus for keyboard users, hidden for pointer users. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
