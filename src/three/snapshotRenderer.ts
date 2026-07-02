@@ -116,15 +116,22 @@ export function renderOrientation(
 const AXIS_COLORS = { x: 0xd9534f, y: 0x3fa957, z: 0x3f7fd6 } as const;
 let legendCache: string | null = null;
 
-/** A curved arrow around `axis` showing the positive (right-hand rule) direction. */
-function makeRotationCurl(axis: 'x' | 'y' | 'z', color: number): THREE.Group {
+const AXIS_DIR: Record<'x' | 'y' | 'z', THREE.Vector3> = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+};
+
+/**
+ * Curved +rotation arrow around `axis` (right-hand rule), a half turn whose
+ * endpoints sit on the axis plane: X-curl endpoints at Z=0, Y-curl at X=0,
+ * Z-curl at Y=0. `radius` sizes it and `along` shifts its centre up the axis
+ * (used to place it near the axis tip on the local-coordinate reference).
+ */
+function makeRotationCurl(axis: 'x' | 'y' | 'z', color: number, radius = 0.5, along = 0): THREE.Group {
   const group = new THREE.Group();
-  const R = 0.5;
-  // The Z arc lies in the screen plane, so keep its endpoints on the X axis
-  // (start/end y ≈ 0). X/Y arcs are seen edge-on, so the offset there is fine.
-  const [startDeg, endDeg] = axis === 'z' ? [0, 180] : [20, 200];
-  const start = THREE.MathUtils.degToRad(startDeg);
-  const end = THREE.MathUtils.degToRad(endDeg);
+  const start = 0;
+  const end = Math.PI;
 
   // right-hand rule: +X takes Y->Z, +Y takes Z->X, +Z takes X->Y
   const u = new THREE.Vector3();
@@ -139,13 +146,18 @@ function makeRotationCurl(axis: 'x' | 'y' | 'z', color: number): THREE.Group {
     u.set(1, 0, 0);
     w.set(0, 1, 0);
   }
+  const offset = AXIS_DIR[axis].clone().multiplyScalar(along);
 
   const N = 48;
   const pts: THREE.Vector3[] = [];
   for (let i = 0; i <= N; i++) {
     const t = start + ((end - start) * i) / N;
     pts.push(
-      u.clone().multiplyScalar(Math.cos(t) * R).add(w.clone().multiplyScalar(Math.sin(t) * R)),
+      u
+        .clone()
+        .multiplyScalar(Math.cos(t) * radius)
+        .add(w.clone().multiplyScalar(Math.sin(t) * radius))
+        .add(offset),
     );
   }
   const curve = new THREE.CatmullRomCurve3(pts);
@@ -158,12 +170,35 @@ function makeRotationCurl(axis: 'x' | 'y' | 'z', color: number): THREE.Group {
     .multiplyScalar(-Math.sin(end))
     .add(w.clone().multiplyScalar(Math.cos(end)))
     .normalize();
-  const endPos = u.clone().multiplyScalar(Math.cos(end) * R).add(w.clone().multiplyScalar(Math.sin(end) * R));
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.15, 12), material);
+  const endPos = u
+    .clone()
+    .multiplyScalar(Math.cos(end) * radius)
+    .add(w.clone().multiplyScalar(Math.sin(end) * radius))
+    .add(offset);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 12), material);
   cone.position.copy(endPos);
   cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
   group.add(cone);
   return group;
+}
+
+/** Coloured axis line (−neg .. +pos along the axis) with a + arrowhead. */
+function makeAxisLine(axis: 'x' | 'y' | 'z', color: number, negExt: number, posExt: number): THREE.Group {
+  const g = new THREE.Group();
+  const dir = AXIS_DIR[axis];
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([
+    dir.clone().multiplyScalar(-negExt),
+    dir.clone().multiplyScalar(posExt),
+  ]);
+  g.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color })));
+  const cone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.05, 0.16, 16),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.5 }),
+  );
+  cone.position.copy(dir.clone().multiplyScalar(posExt));
+  cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  g.add(cone);
+  return g;
 }
 
 /**
@@ -181,25 +216,9 @@ export function renderAxisLegend(size = 260): string {
 
   const L = 1.05;
   (['x', 'y', 'z'] as const).forEach((ax) => {
-    const dir = new THREE.Vector3(ax === 'x' ? 1 : 0, ax === 'y' ? 1 : 0, ax === 'z' ? 1 : 0);
     const color = AXIS_COLORS[ax];
-    const lineMat = new THREE.LineBasicMaterial({ color });
-    const lineGeo = new THREE.BufferGeometry().setFromPoints([
-      dir.clone().multiplyScalar(-L),
-      dir.clone().multiplyScalar(L),
-    ]);
-    scene.add(new THREE.Line(lineGeo, lineMat));
-
-    // arrowhead marking the + end of the axis
-    const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(0.05, 0.16, 16),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.5 }),
-    );
-    cone.position.copy(dir.clone().multiplyScalar(L));
-    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    scene.add(cone);
-
-    scene.add(makeRotationCurl(ax, color));
+    scene.add(makeAxisLine(ax, color, L, L)); // full axis through the origin
+    scene.add(makeRotationCurl(ax, color, 0.5, 0));
   });
 
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
@@ -224,21 +243,6 @@ export function renderAxisLegend(size = 260): string {
 }
 
 // --- local axis reference ---------------------------------------------------
-
-/** A solid arrow (shaft + head) from the origin along `dir`. */
-function makeAxisArrow(dir: THREE.Vector3, color: number, length: number): THREE.Group {
-  const g = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
-  const headLen = 0.22;
-  const shaftLen = Math.max(0.01, length - headLen);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, shaftLen, 14), material);
-  shaft.position.y = shaftLen / 2;
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.075, headLen, 16), material);
-  head.position.y = shaftLen + headLen / 2;
-  g.add(shaft, head);
-  g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-  return g;
-}
 
 /**
  * Render the object at identity in a quarter view with its local +X/+Y/+Z axes
@@ -267,12 +271,14 @@ export function renderLocalAxes(object: THREE.Object3D, size = 320): string {
   holder.scale.setScalar(1.7 / maxDim);
   scene.add(holder);
 
-  // local axes at the object origin (same normalised space); length reaches
-  // just past the object surface so the arrowheads read outside the silhouette.
+  // local axes at the object origin (same normalised space); same line style as
+  // the global legend, plus a +rotation curl near each axis tip.
   const axisLen = 1.15;
-  scene.add(makeAxisArrow(new THREE.Vector3(1, 0, 0), AXIS_COLORS.x, axisLen));
-  scene.add(makeAxisArrow(new THREE.Vector3(0, 1, 0), AXIS_COLORS.y, axisLen));
-  scene.add(makeAxisArrow(new THREE.Vector3(0, 0, 1), AXIS_COLORS.z, axisLen));
+  (['x', 'y', 'z'] as const).forEach((ax) => {
+    const color = AXIS_COLORS[ax];
+    scene.add(makeAxisLine(ax, color, 0, axisLen));
+    scene.add(makeRotationCurl(ax, color, 0.26, 0.82)); // near the tip
+  });
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
   camera.position.set(2.7, 2.2, 3.0); // quarter view

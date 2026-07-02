@@ -11,7 +11,7 @@ export function LocalAxisReference({ object }: { object: THREE.Object3D | null }
   return (
     <div className="card">
       <div className="muted" style={{ marginBottom: 8 }}>
-        ローカル座標
+        ローカル座標での回転
       </div>
       <img className="local-axes" src={url} alt="オブジェクトのローカル座標軸" />
     </div>

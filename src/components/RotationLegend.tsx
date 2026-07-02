@@ -10,7 +10,7 @@ export function RotationLegend() {
   return (
     <div className="card" style={{ padding: 'var(--sp-3)' }}>
       <div className="muted" style={{ marginBottom: 6 }}>
-        回転の凡例
+        グローバル座標での回転
       </div>
       <div className="row" style={{ alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'nowrap' }}>
         <img

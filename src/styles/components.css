@@ -316,7 +316,7 @@
 /* local-axis reference — same card/label layout as the sample; image kept at
    90% of the sample (--work-img-size) and centered (leaves side margins). */
 .local-axes {
-  width: var(--work-img-size);
+  width: calc(var(--work-img-size) * 0.75);
   max-width: 100%;
   aspect-ratio: 1;
   display: block;
@@ -350,18 +350,22 @@
   display: flex;
   gap: var(--sp-4);
   align-items: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
-/* canvas + answer sit side by side at a fixed, equal size (they do not shrink
-   when the answer appears); they wrap only if the column is too narrow. */
+/* canvas (left) + answer (right) always share the row and shrink together, so
+   the answer sits to the right and the canvas size doesn't jump on reveal. */
 .draw-row > .card {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
 }
-/* the revealed answer matches the canvas size exactly */
+/* keep both media centered within their (possibly wider) card */
 .draw-row .sample {
   width: var(--work-img-size);
   max-width: 100%;
+  margin: 0 auto;
+}
+.draw-row .draw-canvas {
+  margin: 0 auto;
 }
 .draw-wrap {
   width: 100%;
@@ -409,6 +413,12 @@
   display: inline-block;
   border-radius: 999px;
   background: currentColor;
+}
+.tb-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
 }
 .tb-sep {
   width: 1px;
@@ -478,6 +488,21 @@
   padding: var(--sp-4) var(--sp-5);
   background: var(--instr-bg);
   border-radius: var(--radius-sm);
+}
+
+/* task heading above the rotation-instruction region */
+.quiz-heading {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.5;
+  margin-bottom: var(--sp-3);
+}
+
+/* reserved region for post-answer UI, so revealing it doesn't shift the layout */
+.quiz-actions {
+  margin-top: var(--sp-4);
+  min-height: 118px;
 }
 /* Meaningful tokens are +50% size; connective words stay at the base size. */
 .step {

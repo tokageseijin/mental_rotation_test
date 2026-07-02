@@ -15,6 +15,7 @@ import { offsetDifficulty, type PoseOffsets } from './pose';
 
 const COS_TOL = Math.cos(THREE.MathUtils.degToRad(20));
 const RAW_MAX = 7;
+const LOCAL_FACTOR = 2; // local rotation is ~2× harder to simulate mentally
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export function poseDifficulty(
@@ -46,8 +47,13 @@ export function poseDifficulty(
   let opDiff = 0;
   for (const s of steps) {
     const a = Math.abs(s.angleDeg);
-    opDiff += a % 180 === 0 ? 0 : a % 90 === 0 ? 0.4 : 0.8; // 180 easy, 90 dir-risk, else harder
-    opDiff += s.type === 'global' ? 0.25 : 0.1; // global axis-confusion vs intuitive local
+    const angleRisk = a % 180 === 0 ? 0 : a % 90 === 0 ? 0.4 : 0.8; // 180 easy, 90 dir-risk, else harder
+    const frameRisk = s.type === 'global' ? 0.25 : 0.1; // global axis-confusion
+    let stepDiff = angleRisk + frameRisk;
+    // Local rotation is far harder to simulate (you must track the object's own,
+    // already-rotated axes): double that step's contribution.
+    if (s.type === 'local') stepDiff *= LOCAL_FACTOR;
+    opDiff += stepDiff;
   }
 
   const stepExtra = 0.3 * Math.max(0, steps.length - 1); // sequential working memory

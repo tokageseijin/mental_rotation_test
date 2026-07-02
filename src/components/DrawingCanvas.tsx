@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { normalizePointer } from '../input/pointer';
+import penIcon from '../../img/pen_2211168.png';
+import eraserIcon from '../../img/eraser_4188635.png';
+
+export interface DrawingCanvasHandle {
+  clear: () => void;
+}
 
 // A memo sketch surface driven by Pointer Events, with its own toolbar.
 //  - pen pressure -> line width (mouse/touch use a fixed mid pressure)
@@ -13,7 +19,7 @@ const MAX_HISTORY = 25;
 
 type Tool = 'pen' | 'eraser';
 
-export function DrawingCanvas() {
+export const DrawingCanvas = forwardRef<DrawingCanvasHandle>(function DrawingCanvas(_props, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const drawing = useRef(false);
@@ -101,6 +107,8 @@ export function DrawingCanvas() {
     pushHistory();
   }
 
+  useImperativeHandle(ref, () => ({ clear: clearAll }));
+
   function shouldIgnoreTouch(kind: string): boolean {
     return kind === 'touch' && (penActive.current || performance.now() - lastPenAt.current < PEN_LOCKOUT_MS);
   }
@@ -158,11 +166,22 @@ export function DrawingCanvas() {
         </button>
         <span className="tb-sep" />
         <button
-          className="tb-btn wide"
-          onClick={() => setTool((t) => (t === 'pen' ? 'eraser' : 'pen'))}
-          title="ペン / 消しゴム切り替え"
+          className={`tb-btn${tool === 'pen' ? ' active' : ''}`}
+          onClick={() => setTool('pen')}
+          aria-pressed={tool === 'pen'}
+          title="ペン"
+          aria-label="ペン"
         >
-          {tool === 'pen' ? '✎ ペン' : '⌫ 消しゴム'}
+          <img className="tb-icon" src={penIcon} alt="" />
+        </button>
+        <button
+          className={`tb-btn${tool === 'eraser' ? ' active' : ''}`}
+          onClick={() => setTool('eraser')}
+          aria-pressed={tool === 'eraser'}
+          title="消しゴム"
+          aria-label="消しゴム"
+        >
+          <img className="tb-icon" src={eraserIcon} alt="" />
         </button>
         <span className="tb-sep" />
         {SIZE_LEVELS.map((s, i) => (
@@ -176,10 +195,6 @@ export function DrawingCanvas() {
             <span className="dot" style={{ width: Math.min(16, s + 2), height: Math.min(16, s + 2) }} />
           </button>
         ))}
-        <span className="tb-sep" />
-        <button className="tb-btn" onClick={clearAll} title="全消し">
-          全消し
-        </button>
       </div>
       <canvas
         ref={canvasRef}
@@ -192,4 +207,4 @@ export function DrawingCanvas() {
       />
     </div>
   );
-}
+});

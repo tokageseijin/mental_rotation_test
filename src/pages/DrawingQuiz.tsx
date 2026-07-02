@@ -9,7 +9,7 @@ import { StepInstruction } from '../components/StepInstruction';
 import { RankMeter } from '../components/RankMeter';
 import { RotationReplay } from '../components/RotationReplay';
 import { LocalAxisReference } from '../components/LocalAxisReference';
-import { DrawingCanvas } from '../components/DrawingCanvas';
+import { DrawingCanvas, type DrawingCanvasHandle } from '../components/DrawingCanvas';
 import { generateDrawingTask, type DrawingTask } from '../quiz/generateQuestion';
 import { gradeDrawing } from '../quiz/grade';
 import { pickTarget } from '../quiz/target';
@@ -41,6 +41,7 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
   const [selfPicked, setSelfPicked] = useState<number | null>(null);
   const [delta, setDelta] = useState(0);
   const lastKeyRef = useRef('');
+  const canvasRef = useRef<DrawingCanvasHandle>(null);
 
   useEffect(() => {
     if (!object) return;
@@ -75,9 +76,7 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
   return (
     <div>
       <h1 className="page-title">クイズ・ドローイング</h1>
-      <p className="page-sub">
-        課題「{selected.name}」に指定の回転を加えた見え方を、キャンバスに描いてから答え合わせします。
-      </p>
+      <p className="page-sub">課題オブジェクトに指定の回転を加えたときの正しい見え方を描く。</p>
 
       {/* Same layout as 4-choice mode: 見本 + 凡例 on the left, work on the right. */}
       <div className="quiz-layout">
@@ -121,8 +120,8 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
           ) : (
             <>
               <div style={{ marginBottom: 16 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>
-                  加える回転操作
+                <div className="quiz-heading">
+                  見本画像に以下の回転操作を加えたときの答えをドローイングする。
                 </div>
                 <div className="instruction">
                   {task.steps.map((s, i) => (
@@ -133,22 +132,30 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
 
               <div className="draw-row">
                 <div className="card">
-                  <div className="muted" style={{ marginBottom: 8 }}>
-                    あなたのスケッチ
+                  <div className="row" style={{ marginBottom: 8 }}>
+                    <span className="muted">あなたのスケッチ</span>
+                    <span className="spacer" />
+                    <button className="tb-btn" onClick={() => canvasRef.current?.clear()}>
+                      全消し
+                    </button>
                   </div>
-                  <DrawingCanvas key={round} />
+                  <DrawingCanvas key={round} ref={canvasRef} />
                   <p className="muted" style={{ marginTop: 6 }}>
-                    ペン（筆圧対応）・マウスで描けます。答えを見る前のメモとしてどうぞ。
+                    ペン・マウスに対応
                   </p>
                 </div>
-                {revealed && (
-                  <div className="card">
-                    <div className="muted" style={{ marginBottom: 8 }}>
-                      正答（お手本）
-                    </div>
-                    <img className="sample" src={task.answerImageUrl} alt="正答" />
+                {/* answer slot is always present (reserved) so the canvas size
+                    stays stable; it holds the answer once revealed. */}
+                <div className="card">
+                  <div className="muted" style={{ marginBottom: 8 }}>
+                    正答（お手本）
                   </div>
-                )}
+                  {revealed ? (
+                    <img className="sample" src={task.answerImageUrl} alt="正答" />
+                  ) : (
+                    <div className="sample sample-placeholder">答え合わせ後に表示</div>
+                  )}
+                </div>
               </div>
 
               {!revealed ? (

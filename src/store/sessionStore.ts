@@ -11,7 +11,7 @@ interface SessionState {
 }
 
 export const useSession = create<SessionState>((set) => ({
-  selectedModelId: 'sm-l',
+  selectedModelId: 'teapot',
   mode: 'choice',
   setSelectedModel: (selectedModelId) => set({ selectedModelId }),
   setMode: (mode) => set({ mode }),

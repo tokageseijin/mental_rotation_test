@@ -109,9 +109,7 @@ export function Quiz() {
   return (
     <div>
       <h1 className="page-title">クイズ・4択</h1>
-      <p className="page-sub">
-        課題「{selected.name}」に指定の回転を加えたとき、正しい見え方はどれ？
-      </p>
+      <p className="page-sub">課題オブジェクトに指定の回転を加えたときの正しい見え方を選ぶ。</p>
 
       <div className="quiz-layout">
         <section>
@@ -159,8 +157,8 @@ export function Quiz() {
           ) : (
             <>
               <div style={{ marginBottom: 16 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>
-                  加える回転操作
+                <div className="quiz-heading">
+                  見本画像に以下の回転操作を加えたときの答えを、以下の4択から選択する。
                 </div>
                 <div className="instruction">
                   {question.steps.map((s, i) => (
@@ -190,18 +188,21 @@ export function Quiz() {
                 })}
               </div>
 
-              {result && (
-                <div style={{ marginTop: 16 }}>
-                  <Feedback question={question} chosen={chosen!} result={result} />
-                  <button
-                    className="btn primary lg"
-                    style={{ marginTop: 12 }}
-                    onClick={() => setRound((r) => r + 1)}
-                  >
-                    次の問題 →
-                  </button>
-                </div>
-              )}
+              {/* reserved so the layout doesn't shift when the answer is revealed */}
+              <div className="quiz-actions">
+                {result && (
+                  <>
+                    <Feedback question={question} chosen={chosen!} result={result} />
+                    <button
+                      className="btn primary lg"
+                      style={{ marginTop: 12 }}
+                      onClick={() => setRound((r) => r + 1)}
+                    >
+                      次の問題 →
+                    </button>
+                  </>
+                )}
+              </div>
             </>
           )}
         </section>

@@ -54,7 +54,7 @@ export function Home() {
   async function handleRemove(entry: ModelEntry) {
     await deleteUserModel(entry.id);
     removeUserModel(entry.id);
-    if (selectedModelId === entry.id) setSelectedModel('sm-l');
+    if (selectedModelId === entry.id) setSelectedModel('teapot');
   }
 
   return (

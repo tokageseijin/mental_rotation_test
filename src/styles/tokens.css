@@ -66,8 +66,15 @@
   --fs-xl: 28px;
 
   /* quiz media sizing: the 見本 (sample) is the largest reference; option
-     images, the drawing canvas and the answer are capped at 90% of it. */
-  --sample-size: 360px;
+     images, the drawing canvas, the answer and the local-axes ref are 90% of
+     it. The size is responsive so the whole quiz fits the viewport without
+     scrolling — bound by height (the stacked left column) and, as a fallback,
+     by width. Everything scales together from this one variable. */
+  --sample-size: clamp(
+    150px,
+    min(calc((100vh - 520px) / 1.7), calc((100vw - 760px) / 1.8)),
+    360px
+  );
   --work-img-size: calc(var(--sample-size) * 0.9);
 
   --radius: 10px;
