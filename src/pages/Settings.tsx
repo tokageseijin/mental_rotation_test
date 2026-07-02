@@ -1,13 +1,27 @@
 import { useRef, useState } from 'react';
 import { useSettings } from '../store/settingsStore';
 import { useProfile } from '../store/profileStore';
+import { useProblemLog } from '../store/problemLogStore';
 import { downloadExport, importFromFile } from '../store/persistence';
 
 export function Settings() {
   const { defaultMode, maxDifficulty, setDefaultMode, setMaxDifficulty } = useSettings();
   const resetProfile = useProfile((s) => s.reset);
+  const resetRanks = useProfile((s) => s.resetRanks);
+  const problemLog = useProblemLog((s) => s.records);
+  const clearProblemLog = useProblemLog((s) => s.clear);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+
+  function exportProblemLog() {
+    const blob = new Blob([JSON.stringify(problemLog, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mrt-problem-log-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -76,19 +90,62 @@ export function Settings() {
 
       <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>
         <strong>成績のリセット</strong>
-        <p className="muted" style={{ marginTop: 4 }}>ランクと回答履歴をすべて消去します（元に戻せません）。</p>
-        <button
-          className="btn"
-          style={{ marginTop: 8, borderColor: 'var(--bad)', color: 'var(--bad)' }}
-          onClick={() => {
-            if (confirm('成績とランクをすべてリセットしますか？')) {
-              resetProfile();
-              setMsg({ kind: 'ok', text: '成績をリセットしました。' });
-            }
-          }}
-        >
-          成績をリセット
-        </button>
+        <p className="muted" style={{ marginTop: 4 }}>いずれも元に戻せません。</p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button
+            className="btn"
+            style={{ borderColor: 'var(--bad)', color: 'var(--bad)' }}
+            onClick={() => {
+              if (confirm('ランクと経験値だけをリセットしますか？（回答履歴・問題ログは残ります）')) {
+                resetRanks();
+                setMsg({ kind: 'ok', text: 'ランク・経験値をリセットしました。' });
+              }
+            }}
+          >
+            ランク・経験値のみリセット
+          </button>
+          <button
+            className="btn"
+            style={{ borderColor: 'var(--bad)', color: 'var(--bad)' }}
+            onClick={() => {
+              if (confirm('ランク・経験値・回答履歴をすべてリセットしますか？')) {
+                resetProfile();
+                setMsg({ kind: 'ok', text: '成績をすべてリセットしました。' });
+              }
+            }}
+          >
+            成績をすべてリセット
+          </button>
+        </div>
+        <p className="muted" style={{ marginTop: 8 }}>
+          ※「すべてリセット」は回答履歴も消えます（成績ページの集計が空になります）。問題ログは別途「問題ログを削除」から。
+        </p>
+      </div>
+
+      <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>
+        <strong>問題ログ</strong>
+        <p className="muted" style={{ marginTop: 4 }}>
+          出題内容（初期姿勢・回転・選択肢）と回答の記録。最新 {problemLog.length} / 500 件を保存中。
+          分析用にJSONで書き出せます。
+        </p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn" onClick={exportProblemLog} disabled={problemLog.length === 0}>
+            問題ログを書き出し
+          </button>
+          <button
+            className="btn"
+            style={{ borderColor: 'var(--bad)', color: 'var(--bad)' }}
+            disabled={problemLog.length === 0}
+            onClick={() => {
+              if (confirm('問題ログをすべて削除しますか？')) {
+                clearProblemLog();
+                setMsg({ kind: 'ok', text: '問題ログを削除しました。' });
+              }
+            }}
+          >
+            問題ログを削除
+          </button>
+        </div>
       </div>
     </div>
   );

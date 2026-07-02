@@ -1,4 +1,4 @@
-import { RANK_TIERS, type RankTier } from '../types';
+import { RANK_TIERS, type AttemptRecord, type QuizMode, type RankTier } from '../types';
 
 // Skill estimation is an Elo-like rating. Each question is treated as an
 // "opponent" whose strength is derived from its 0..1 difficulty. Answering a
@@ -40,12 +40,25 @@ export function updateRatingScore(current: number, difficulty: number, score: nu
   const opponent = difficultyToRating(difficulty);
   const expected = expectedScore(current, opponent);
   const clamped = Math.max(0, Math.min(1, score));
-  const next = clamp(current + k * (clamped - expected), RATING_MIN, RATING_MAX);
+  let delta = k * (clamped - expected);
+  // Minimum reward guarantee: a positive outcome always grants at least +1,
+  // so beating expectation never shows a "+0" gain.
+  if (clamped > expected && delta < 1) delta = 1;
+  const next = clamp(current + delta, RATING_MIN, RATING_MAX);
   return { next, delta: next - current };
 }
 
 // Rank bands: evenly spaced across the rating range, one band per tier.
 const BAND = (RATING_MAX - RATING_MIN) / RANK_TIERS.length;
+
+/** All tiers with their rating ranges (for the hover legend). */
+export function rankBands(): Array<{ tier: RankTier; min: number; max: number }> {
+  return RANK_TIERS.map((tier, i) => ({
+    tier,
+    min: Math.round(RATING_MIN + i * BAND),
+    max: Math.round(RATING_MIN + (i + 1) * BAND),
+  }));
+}
 
 export function ratingToRank(rating: number): RankTier {
   const idx = Math.min(RANK_TIERS.length - 1, Math.floor((rating - RATING_MIN) / BAND));
@@ -85,4 +98,39 @@ export function selfRatingScore(selfRating: number): number {
 /** Whether a self-evaluation counts as a "success" for accuracy stats. */
 export function selfRatingIsSuccess(selfRating: number): boolean {
   return selfRating <= 1;
+}
+
+// --- recent performance & adaptive learning rate ----------------------------
+
+export interface RecentPerf {
+  count: number;
+  successRate: number;
+}
+
+export const RECENT_WINDOW = 8;
+const MIN_RECENT = 5;
+export const HOT_THRESHOLD = 0.85; // doing far better than target -> underrated
+export const COLD_THRESHOLD = 0.45; // doing far worse than target -> overrated
+
+/** Success rate over the last few attempts of a mode. */
+export function recentPerf(history: AttemptRecord[], mode: QuizMode, window = RECENT_WINDOW): RecentPerf {
+  const recent = history.filter((h) => h.mode === mode).slice(-window);
+  const count = recent.length;
+  const successRate = count ? recent.filter((h) => h.correct).length / count : 0;
+  return { count, successRate };
+}
+
+/**
+ * Larger K (faster convergence) when the estimate is uncertain: early on
+ * (few attempts) or when recent results clearly disagree with the rating.
+ */
+export function adaptiveK(base: number, r: RecentPerf): number {
+  if (r.count < MIN_RECENT) return base * 1.5; // provisional period
+  if (r.successRate > HOT_THRESHOLD || r.successRate < COLD_THRESHOLD) return base * 1.8;
+  return base;
+}
+
+/** True once there is enough recent data to act on a hot/cold streak. */
+export function hasRecentSignal(r: RecentPerf): boolean {
+  return r.count >= MIN_RECENT;
 }

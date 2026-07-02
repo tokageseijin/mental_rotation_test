@@ -120,8 +120,11 @@ let legendCache: string | null = null;
 function makeRotationCurl(axis: 'x' | 'y' | 'z', color: number): THREE.Group {
   const group = new THREE.Group();
   const R = 0.5;
-  const start = THREE.MathUtils.degToRad(20);
-  const end = THREE.MathUtils.degToRad(200);
+  // The Z arc lies in the screen plane, so keep its endpoints on the X axis
+  // (start/end y ≈ 0). X/Y arcs are seen edge-on, so the offset there is fine.
+  const [startDeg, endDeg] = axis === 'z' ? [0, 180] : [20, 200];
+  const start = THREE.MathUtils.degToRad(startDeg);
+  const end = THREE.MathUtils.degToRad(endDeg);
 
   // right-hand rule: +X takes Y->Z, +Y takes Z->X, +Z takes X->Y
   const u = new THREE.Vector3();
@@ -217,5 +220,75 @@ export function renderAxisLegend(size = 260): string {
   });
 
   legendCache = url;
+  return url;
+}
+
+// --- local axis reference ---------------------------------------------------
+
+/** A solid arrow (shaft + head) from the origin along `dir`. */
+function makeAxisArrow(dir: THREE.Vector3, color: number, length: number): THREE.Group {
+  const g = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
+  const headLen = 0.22;
+  const shaftLen = Math.max(0.01, length - headLen);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, shaftLen, 14), material);
+  shaft.position.y = shaftLen / 2;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.075, headLen, 16), material);
+  head.position.y = shaftLen + headLen / 2;
+  g.add(shaft, head);
+  g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  return g;
+}
+
+/**
+ * Render the object at identity in a quarter view with its local +X/+Y/+Z axes
+ * drawn as coloured arrows. Axes share the scene (and depth buffer) with the
+ * object, so the front/back occlusion between axes and object is preserved.
+ */
+export function renderLocalAxes(object: THREE.Object3D, size = 320): string {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x707784, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 1.3);
+  key.position.set(2.5, 3.5, 4);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+  fill.position.set(-3, -1, -2);
+  scene.add(fill);
+
+  // centre + normalise the object exactly like the snapshot framing
+  const model = object.clone(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const center = box.getCenter(new THREE.Vector3());
+  const sizeVec = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z) || 1;
+  model.position.sub(center);
+  const holder = new THREE.Group();
+  holder.add(model);
+  holder.scale.setScalar(1.7 / maxDim);
+  scene.add(holder);
+
+  // local axes at the object origin (same normalised space); length reaches
+  // just past the object surface so the arrowheads read outside the silhouette.
+  const axisLen = 1.15;
+  scene.add(makeAxisArrow(new THREE.Vector3(1, 0, 0), AXIS_COLORS.x, axisLen));
+  scene.add(makeAxisArrow(new THREE.Vector3(0, 1, 0), AXIS_COLORS.y, axisLen));
+  scene.add(makeAxisArrow(new THREE.Vector3(0, 0, 1), AXIS_COLORS.z, axisLen));
+
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  camera.position.set(2.7, 2.2, 3.0); // quarter view
+  camera.lookAt(0, 0, 0);
+
+  const r = getRenderer(size);
+  r.render(scene, camera);
+  const url = r.domElement.toDataURL('image/png');
+
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.geometry) m.geometry.dispose();
+    const material = m.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(material)) material.forEach((x) => x.dispose());
+    else material?.dispose();
+  });
+
   return url;
 }

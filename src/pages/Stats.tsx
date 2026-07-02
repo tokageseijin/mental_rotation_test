@@ -1,16 +1,25 @@
 import { useMemo, useState } from 'react';
 import type { QuizMode } from '../types';
 import { useProfile } from '../store/profileStore';
+import { useProblemLog } from '../store/problemLogStore';
 import { RankBadge } from '../components/RankBadge';
 import { bucketAccuracy, summarize, type Bucket } from '../skill/analysis';
+import { aggregateAttribution } from '../quiz/errorModels';
 
 export function Stats() {
   const modes = useProfile((s) => s.modes);
   const history = useProfile((s) => s.history);
+  const problems = useProblemLog((s) => s.records);
   const [mode, setMode] = useState<QuizMode>('choice');
 
   const attempts = useMemo(() => history.filter((h) => h.mode === mode), [history, mode]);
   const summary = useMemo(() => summarize(attempts), [attempts]);
+  // Probabilistic error attribution is derived from the full problem log
+  // (choice mode only — drawing has no options to attribute).
+  const attribution = useMemo(
+    () => aggregateAttribution(problems.filter((p) => p.mode === 'choice')),
+    [problems],
+  );
 
   return (
     <div>
@@ -68,29 +77,33 @@ export function Stats() {
           <BarGroup title="回転軸の数別 正答率" buckets={summary.byAxisCount} />
           <BarGroup title="難易度帯別 正答率" buckets={summary.byDifficulty} />
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="muted" style={{ marginBottom: 8 }}>
-              誤答の種類ランキング（何をよく取り違えるか）
+          {mode === 'choice' && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="muted" style={{ marginBottom: 8 }}>
+                誤りの傾向（推定）— 何を取り違えやすいか
+              </div>
+              {attribution.count === 0 ? (
+                <p className="muted">誤答データはありません。</p>
+              ) : (
+                <>
+                  {attribution.breakdown
+                    .filter((b) => b.fraction > 0.005)
+                    .map((b) => (
+                      <div key={b.category} className="bar-row">
+                        <span>{b.label}</span>
+                        <div className="bar">
+                          <span style={{ width: `${b.fraction * 100}%`, background: 'var(--bad)' }} />
+                        </div>
+                        <span>{pct(b.fraction)}</span>
+                      </div>
+                    ))}
+                  <p className="muted" style={{ marginTop: 8 }}>
+                    ※ 同じ誤答が複数の原因に当てはまることがあるため、確率的に按分した推定値です（{attribution.count}件の誤答から）。
+                  </p>
+                </>
+              )}
             </div>
-            {summary.mistakeRanking.length === 0 ? (
-              <p className="muted">誤答データはありません。</p>
-            ) : (
-              summary.mistakeRanking.map((m) => (
-                <div key={m.category} className="bar-row">
-                  <span>{m.label}</span>
-                  <div className="bar">
-                    <span
-                      style={{
-                        width: `${(m.count / summary.mistakeRanking[0].count) * 100}%`,
-                        background: 'var(--bad)',
-                      }}
-                    />
-                  </div>
-                  <span>{m.count}</span>
-                </div>
-              ))
-            )}
-          </div>
+          )}
         </>
       )}
     </div>

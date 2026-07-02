@@ -1,32 +1,60 @@
+import * as THREE from 'three';
+import { AXIS_VECTORS, composeRotation } from '../three/rotation';
 import type { RotationStep } from '../types';
+import { offsetDifficulty, type PoseOffsets } from './pose';
 
-// A 0..1 difficulty estimate. Difficulty rises with: more rotation axes, using
-// local (object-frame) rotation, larger / less "clean" angles, and distractors
-// that sit visually close to the correct answer.
+// Pose-driven difficulty. The dominant factor is how "off-grid" the pose is at
+// each step relative to the operation being applied:
+//  - base offset difficulty is the sum of per-axis offsets (0/1/2)
+//  - a step whose WORLD-space axis lines up with an offset axis CANCELS that
+//    offset (rotating about an axis you're already offset on adds no extra load).
+//    Global step world-axis = its axis; local step world-axis = axis·R (the axis
+//    in the current pose). Cancellation is binary (aligned within ~20°).
+//  - plus small per-operation risk (direction on 90°, axis on global) and
+//    super-additive terms for step count and simultaneous multi-axis offsets.
 
-export interface DifficultyInput {
-  steps: RotationStep[];
-  /** smallest angular gap (radians) between the correct answer and any distractor */
-  minDistractorAngleRad?: number;
-}
-
+const COS_TOL = Math.cos(THREE.MathUtils.degToRad(20));
+const RAW_MAX = 7;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-export function difficultyOf({ steps, minDistractorAngleRad }: DifficultyInput): number {
-  const axisCount = new Set(steps.map((s) => s.axis)).size;
-  const usesLocal = steps.some((s) => s.type === 'local');
-  const totalAngle = steps.reduce((sum, s) => sum + Math.abs(s.angleDeg), 0);
-  const oddAngles = steps.some((s) => Math.abs(s.angleDeg) % 90 !== 0);
+export function poseDifficulty(
+  offsets: PoseOffsets,
+  steps: RotationStep[],
+  baseQ: THREE.Quaternion,
+): number {
+  const poseDiff: Record<'x' | 'y' | 'z', number> = {
+    x: offsetDifficulty(offsets.x),
+    y: offsetDifficulty(offsets.y),
+    z: offsetDifficulty(offsets.z),
+  };
 
-  const axisFactor = (axisCount - 1) / 2; // 0, .5, 1
-  const typeFactor = usesLocal ? 0.18 : 0;
-  const angleFactor = clamp01(totalAngle / 360) * 0.4 + (oddAngles ? 0.15 : 0);
-  // closer distractors => harder to discriminate
-  const closeness =
-    minDistractorAngleRad === undefined ? 0 : clamp01(1 - minDistractorAngleRad / (Math.PI / 2)) * 0.4;
+  // walk the steps, cancelling offsets whose axis the step rotates about
+  let running = baseQ.clone();
+  for (const step of steps) {
+    const worldAxis =
+      step.type === 'global'
+        ? AXIS_VECTORS[step.axis].clone()
+        : AXIS_VECTORS[step.axis].clone().applyQuaternion(running);
+    (['x', 'y', 'z'] as const).forEach((ax) => {
+      if (poseDiff[ax] > 0 && Math.abs(worldAxis.dot(AXIS_VECTORS[ax])) > COS_TOL) poseDiff[ax] = 0;
+    });
+    running = composeRotation([step], running);
+  }
 
-  const raw = axisFactor * 0.35 + typeFactor + angleFactor * 0.5 + closeness;
-  return clamp01(raw);
+  const baseOffset = poseDiff.x + poseDiff.y + poseDiff.z;
+
+  let opDiff = 0;
+  for (const s of steps) {
+    const a = Math.abs(s.angleDeg);
+    opDiff += a % 180 === 0 ? 0 : a % 90 === 0 ? 0.4 : 0.8; // 180 easy, 90 dir-risk, else harder
+    opDiff += s.type === 'global' ? 0.25 : 0.1; // global axis-confusion vs intuitive local
+  }
+
+  const stepExtra = 0.3 * Math.max(0, steps.length - 1); // sequential working memory
+  const uncancelled = (poseDiff.x > 0 ? 1 : 0) + (poseDiff.y > 0 ? 1 : 0) + (poseDiff.z > 0 ? 1 : 0);
+  const multiExtra = uncancelled >= 2 ? 0.6 * (uncancelled - 1) : 0; // compounding offsets
+
+  return clamp01((baseOffset + opDiff + stepExtra + multiExtra) / RAW_MAX);
 }
 
 /** Coarse metadata about a step list, stored on each attempt for analysis. */
@@ -37,7 +65,6 @@ export function stepStats(steps: RotationStep[]): {
 } {
   const axisCount = new Set(steps.map((s) => s.axis)).size;
   const totalAngle = steps.reduce((sum, s) => sum + Math.abs(s.angleDeg), 0);
-  // classify by the dominant type; "local" if any local step present
   const rotationType = steps.some((s) => s.type === 'local') ? 'local' : 'global';
   return { axisCount, totalAngle, rotationType };
 }

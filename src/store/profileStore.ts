@@ -13,6 +13,7 @@ export interface ProfileState {
   /** append a graded attempt and move that mode's rating to record.ratingAfter */
   recordAttempt: (record: AttemptRecord) => void;
   reset: () => void;
+  resetRanks: () => void;
   replaceAll: (s: Pick<ProfileState, 'modes' | 'history'>) => void;
 }
 
@@ -40,6 +41,8 @@ export const useProfile = create<ProfileState>()(
           };
         }),
       reset: () => set({ modes: initialModes(), history: [] }),
+      // reset only ranks/ratings (and thus the XP bars); keep attempt history
+      resetRanks: () => set({ modes: initialModes() }),
       replaceAll: (s) => set({ modes: s.modes, history: s.history }),
     }),
     { name: 'mrt.profile' },

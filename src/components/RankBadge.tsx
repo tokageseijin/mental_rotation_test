@@ -1,5 +1,5 @@
 import { RANK_LABELS_JA, type RankTier } from '../types';
-import { nextRank, rankProgress, ratingToRank } from '../skill/rating';
+import { nextRank, rankBands, rankProgress, ratingToRank } from '../skill/rating';
 
 const TIER_COLOR: Record<RankTier, string> = {
   Iron: '#8a8f98',
@@ -17,17 +17,38 @@ export function RankBadge({ rating, compact = false }: { rating: number; compact
   const tier = ratingToRank(rating);
   const upcoming = nextRank(tier);
   const progress = rankProgress(rating);
-  const badge = (
-    <div className="rank-badge">
-      <span aria-hidden style={{ width: 12, height: 12, borderRadius: 3, background: TIER_COLOR[tier] }} />
-      {RANK_LABELS_JA[tier]}
-      <span className="muted" style={{ fontWeight: 500 }}>
-        {Math.round(rating)}
-      </span>
+
+  // Hover legend: all tiers + rating ranges, current tier bolded.
+  const tooltip = (
+    <div className="rank-tooltip" role="tooltip">
+      {rankBands().map((b) => (
+        <div key={b.tier} className={`rank-row${b.tier === tier ? ' current' : ''}`}>
+          <span aria-hidden className="dot" style={{ background: TIER_COLOR[b.tier] }} />
+          <span className="name">{RANK_LABELS_JA[b.tier]}</span>
+          <span className="range">
+            {b.min}–{b.max}
+          </span>
+        </div>
+      ))}
     </div>
   );
 
-  // Compact = just the pill, for overlaying on the sample image.
+  const badge = (
+    <span className="rank-hover">
+      <span className="rank-badge">
+        <span
+          aria-hidden
+          style={{ width: 12, height: 12, borderRadius: 3, background: TIER_COLOR[tier] }}
+        />
+        {RANK_LABELS_JA[tier]}
+        <span className="muted" style={{ fontWeight: 500 }}>
+          {Math.round(rating)}
+        </span>
+      </span>
+      {tooltip}
+    </span>
+  );
+
   if (compact) return badge;
 
   return (

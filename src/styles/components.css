@@ -249,6 +249,84 @@
   font-size: var(--fs-sm);
 }
 
+/* rank + experience bar (above the sample / animation) */
+.xp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: var(--sample-size);
+}
+.xp-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.xp-track {
+  position: relative;
+  height: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--ink-200);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.xp-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: var(--xp-green);
+  border-radius: 999px;
+  transition: width 700ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.xp-delta {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  animation: xpFade 1100ms ease forwards;
+}
+.xp-delta.gain {
+  background: var(--xp-gain);
+}
+.xp-delta.loss {
+  background: var(--xp-loss);
+}
+@keyframes xpFade {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* rotation replay canvas — same footprint as the sample image */
+.replay-canvas {
+  width: 100%;
+  max-width: var(--sample-size);
+  aspect-ratio: 1;
+  background: #fff;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* local-axis reference — same card/label layout as the sample; image kept at
+   90% of the sample (--work-img-size) and centered (leaves side margins). */
+.local-axes {
+  width: var(--work-img-size);
+  max-width: 100%;
+  aspect-ratio: 1;
+  display: block;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius);
+  object-fit: contain;
+}
+
 /* current-rank badge overlaid on the top-left of the sample image */
 .sample-wrap {
   position: relative;
@@ -445,6 +523,57 @@
   background: var(--surface-sunken);
   font-weight: 700;
   font-size: var(--fs-sm);
+}
+
+/* hover legend of all ranks + rating ranges */
+.rank-hover {
+  position: relative;
+  display: inline-block;
+}
+.rank-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 210px;
+  padding: var(--sp-2);
+  background: var(--surface-card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.rank-hover:hover .rank-tooltip,
+.rank-hover:focus-within .rank-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+.rank-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: var(--fs-caption);
+  color: var(--ink-700);
+}
+.rank-row .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.rank-row .range {
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.rank-row.current {
+  font-weight: 800;
+  color: var(--ink-900);
+  background: var(--surface-sunken);
 }
 .progress {
   height: 8px;

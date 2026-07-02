@@ -44,6 +44,11 @@
   --sign-plus: #1f9d55;
   --sign-minus: #d64545;
 
+  /* experience bar */
+  --xp-green: #2fae5f; /* current progress */
+  --xp-gain: #12813f; /* newly gained (slightly darker green) */
+  --xp-loss: #d64545; /* lost portion (red) */
+
   /* spacing (8px grid; 4px half-step) */
   --sp-1: 4px;
   --sp-2: 8px;

@@ -21,7 +21,11 @@ export type DistractorCategory =
   | 'sign' // right axis/magnitude, wrong direction
   | 'magnitude' // right axis, wrong angle amount
   | 'globalLocalSwap' // applied as local instead of global (or vice-versa)
-  | 'mirror'; // mirrored / chirality confusion
+  | 'offsetNeglect' // ignored the initial off-grid tilt (applied to a clean pose)
+  | 'mirror'; // mirrored / chirality confusion (currently disabled)
+
+/** A serialisable quaternion [x, y, z, w]. */
+export type QuatTuple = [number, number, number, number];
 
 export interface QuizOption {
   /** rasterised preview of the model at this orientation */
@@ -29,6 +33,9 @@ export interface QuizOption {
   correct: boolean;
   /** only present on wrong options */
   distractorCategory?: DistractorCategory;
+  /** orientation used to render this option (for logging / reconstruction) */
+  orientation: QuatTuple;
+  flipX?: boolean;
 }
 
 export interface Question {
@@ -100,4 +107,40 @@ export interface ModelEntry {
   /** how the user model's bytes are persisted (user models only) */
   storageMode?: 'handle' | 'bytes';
   addedAt: number;
+}
+
+// --- problem log -----------------------------------------------------------
+
+/** A single option as stored in the problem log (no image, just its makeup). */
+export interface LoggedOption {
+  correct: boolean;
+  distractorCategory?: DistractorCategory;
+  orientation: QuatTuple;
+  flipX?: boolean;
+}
+
+/**
+ * Full record of one presented problem, kept so the exact question (initial
+ * pose, applied rotation, the 4 options) and the user's answer can be reviewed
+ * or reconstructed later. Distinct from AttemptRecord, which is lean analytics.
+ */
+export interface ProblemRecord {
+  at: number;
+  mode: QuizMode;
+  modelId: string;
+  modelName?: string;
+  /** initial orientation (before the challenge rotation) */
+  baseQ: QuatTuple;
+  /** the challenge rotation the user had to apply */
+  steps: RotationStep[];
+  difficulty: number;
+  correct: boolean;
+  // --- choice mode ---
+  options?: LoggedOption[];
+  correctIndex?: number;
+  /** index the user picked (choice mode) */
+  chosenIndex?: number;
+  // --- drawing mode ---
+  /** self evaluation 0..3 (best..worst) */
+  selfRating?: number;
 }

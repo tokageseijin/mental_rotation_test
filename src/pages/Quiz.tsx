@@ -1,25 +1,38 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAllModels } from '../store/libraryStore';
 import { useSession } from '../store/sessionStore';
 import { useProfile } from '../store/profileStore';
 import { useSettings } from '../store/settingsStore';
+import { useProblemLog } from '../store/problemLogStore';
+import { buildPersonalModel } from '../quiz/personalModel';
 import { useResolvedModel } from '../hooks/useResolvedModel';
 import { RotationLegend } from '../components/RotationLegend';
 import { StepInstruction } from '../components/StepInstruction';
-import { RankBadge } from '../components/RankBadge';
+import { RankMeter } from '../components/RankMeter';
+import { RotationReplay } from '../components/RotationReplay';
+import { LocalAxisReference } from '../components/LocalAxisReference';
 import { DrawingQuiz } from './DrawingQuiz';
 import { generateQuestion, type GeneratedQuestion } from '../quiz/generateQuestion';
 import { gradeChoice } from '../quiz/grade';
 import { pickTarget } from '../quiz/target';
+import { adaptiveK, recentPerf } from '../skill/rating';
 import { DISTRACTOR_LABELS_JA } from '../skill/analysis';
 
 export function Quiz() {
   const models = useAllModels();
   const { selectedModelId, mode } = useSession();
   const modes = useProfile((s) => s.modes);
+  const history = useProfile((s) => s.history);
   const recordAttempt = useProfile((s) => s.recordAttempt);
+  const logProblem = useProblemLog((s) => s.add);
+  const problems = useProblemLog((s) => s.records);
   const maxDifficulty = useSettings((s) => s.maxDifficulty);
+
+  // individual fitting: rebuilt whenever the log grows
+  const personal = useMemo(() => buildPersonalModel(problems), [problems]);
+  // recent performance for difficulty targeting + adaptive learning rate
+  const recent = useMemo(() => recentPerf(history, 'choice'), [history]);
 
   const selected = models.find((m) => m.id === selectedModelId) ?? null;
   const { object, loading, needsPermission, error, reload } = useResolvedModel(selected);
@@ -36,18 +49,36 @@ export function Quiz() {
     const key = `${selected.id}:${round}`;
     if (lastKeyRef.current === key) return; // dedupe StrictMode double-invoke
     lastKeyRef.current = key;
-    const target = pickTarget(modes.choice.rating, maxDifficulty);
+    const target = pickTarget(modes.choice.rating, maxDifficulty, recent);
     setChosen(null);
     setResult(null);
-    setQuestion(generateQuestion(selected.id, object, target));
+    setQuestion(generateQuestion(selected.id, object, target, personal));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, selected?.id, round, mode]);
 
   function answer(index: number) {
     if (!question || chosen !== null) return;
     setChosen(index);
-    const graded = gradeChoice(question, index, modes.choice.rating);
+    const graded = gradeChoice(question, index, modes.choice.rating, adaptiveK(48, recent));
     recordAttempt(graded.record);
+    logProblem({
+      at: Date.now(),
+      mode: 'choice',
+      modelId: question.modelId,
+      modelName: selected?.name,
+      baseQ: question.baseQ.toArray() as [number, number, number, number],
+      steps: question.steps,
+      difficulty: question.difficulty,
+      correct: graded.correct,
+      options: question.options.map((o) => ({
+        correct: o.correct,
+        distractorCategory: o.distractorCategory,
+        orientation: o.orientation,
+        flipX: o.flipX,
+      })),
+      correctIndex: question.correctIndex,
+      chosenIndex: index,
+    });
     setResult({ correct: graded.correct, delta: graded.ratingAfter - graded.record.ratingBefore });
   }
 
@@ -84,23 +115,24 @@ export function Quiz() {
 
       <div className="quiz-layout">
         <section>
+          <div style={{ marginBottom: 12 }}>
+            <RankMeter rating={modes.choice.rating} />
+          </div>
           <div className="card">
             <div className="muted" style={{ marginBottom: 8 }}>
-              見本（回転前・この視点で固定）
+              {result ? '回転の再生（見本 → 正解）' : '見本（回転前）'}
             </div>
-            <div className="sample-wrap">
-              {question ? (
-                <img className="sample" src={question.baseImageUrl} alt="回転前の見本" />
-              ) : (
-                <div className="sample sample-placeholder">準備中…</div>
-              )}
-              <div className="sample-rank">
-                <RankBadge rating={modes.choice.rating} compact />
-              </div>
-            </div>
-            <div className="muted" style={{ marginTop: 8 }}>
-              この見本に下の回転を加えると、どの見え方になる？
-            </div>
+            {result && question ? (
+              <RotationReplay object={object} steps={question.steps} baseQ={question.baseQ} />
+            ) : (
+              <>
+                {question ? (
+                  <img className="sample" src={question.baseImageUrl} alt="回転前の見本" />
+                ) : (
+                  <div className="sample sample-placeholder">準備中…</div>
+                )}
+              </>
+            )}
           </div>
           {loading && <p className="muted">読み込み中…</p>}
           {needsPermission && (
@@ -115,6 +147,9 @@ export function Quiz() {
 
           <div style={{ marginTop: 16 }}>
             <RotationLegend />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <LocalAxisReference object={object} />
           </div>
         </section>
 

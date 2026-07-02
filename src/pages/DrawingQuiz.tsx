@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type * as THREE from 'three';
 import type { ModelEntry } from '../types';
 import { useProfile } from '../store/profileStore';
 import { useSettings } from '../store/settingsStore';
+import { useProblemLog } from '../store/problemLogStore';
 import { RotationLegend } from '../components/RotationLegend';
 import { StepInstruction } from '../components/StepInstruction';
-import { RankBadge } from '../components/RankBadge';
+import { RankMeter } from '../components/RankMeter';
+import { RotationReplay } from '../components/RotationReplay';
+import { LocalAxisReference } from '../components/LocalAxisReference';
 import { DrawingCanvas } from '../components/DrawingCanvas';
 import { generateDrawingTask, type DrawingTask } from '../quiz/generateQuestion';
 import { gradeDrawing } from '../quiz/grade';
 import { pickTarget } from '../quiz/target';
-import { SELF_EVAL_LABELS } from '../skill/rating';
+import { adaptiveK, recentPerf, SELF_EVAL_LABELS } from '../skill/rating';
 
 // Self-eval colours run good -> poor so the scale reads at a glance.
 const SELF_COLORS = ['var(--ok)', '#6fae5a', '#d59a52', 'var(--bad)'];
@@ -26,8 +29,11 @@ interface Props {
 
 export function DrawingQuiz({ selected, object, loading, needsPermission, error, reload }: Props) {
   const modes = useProfile((s) => s.modes);
+  const history = useProfile((s) => s.history);
   const recordAttempt = useProfile((s) => s.recordAttempt);
+  const logProblem = useProblemLog((s) => s.add);
   const maxDifficulty = useSettings((s) => s.maxDifficulty);
+  const recent = useMemo(() => recentPerf(history, 'drawing'), [history]);
 
   const [round, setRound] = useState(0);
   const [task, setTask] = useState<DrawingTask | null>(null);
@@ -43,14 +49,25 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
     lastKeyRef.current = key;
     setRevealed(false);
     setSelfPicked(null);
-    setTask(generateDrawingTask(selected.id, object, pickTarget(modes.drawing.rating, maxDifficulty)));
+    setTask(generateDrawingTask(selected.id, object, pickTarget(modes.drawing.rating, maxDifficulty, recent)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, selected.id, round]);
 
   function handleSelfEval(index: number) {
     if (!task || selfPicked !== null) return;
-    const graded = gradeDrawing(task, index, modes.drawing.rating);
+    const graded = gradeDrawing(task, index, modes.drawing.rating, adaptiveK(36, recent));
     recordAttempt(graded.record);
+    logProblem({
+      at: Date.now(),
+      mode: 'drawing',
+      modelId: task.modelId,
+      modelName: selected.name,
+      baseQ: task.baseQ.toArray() as [number, number, number, number],
+      steps: task.steps,
+      difficulty: task.difficulty,
+      correct: graded.correct,
+      selfRating: index,
+    });
     setSelfPicked(index);
     setDelta(graded.ratingAfter - graded.record.ratingBefore);
   }
@@ -65,20 +82,20 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
       {/* Same layout as 4-choice mode: 見本 + 凡例 on the left, work on the right. */}
       <div className="quiz-layout">
         <section>
+          <div style={{ marginBottom: 12 }}>
+            <RankMeter rating={modes.drawing.rating} />
+          </div>
           <div className="card">
             <div className="muted" style={{ marginBottom: 8 }}>
-              見本（回転前・この視点で固定）
+              {revealed ? '回転の再生（見本 → 正解）' : '見本（回転前）'}
             </div>
-            <div className="sample-wrap">
-              {task ? (
-                <img className="sample" src={task.baseImageUrl} alt="回転前の見本" />
-              ) : (
-                <div className="sample sample-placeholder">準備中…</div>
-              )}
-              <div className="sample-rank">
-                <RankBadge rating={modes.drawing.rating} compact />
-              </div>
-            </div>
+            {revealed && task ? (
+              <RotationReplay object={object} steps={task.steps} baseQ={task.baseQ} />
+            ) : task ? (
+              <img className="sample" src={task.baseImageUrl} alt="回転前の見本" />
+            ) : (
+              <div className="sample sample-placeholder">準備中…</div>
+            )}
           </div>
           {loading && <p className="muted">読み込み中…</p>}
           {needsPermission && (
@@ -92,6 +109,9 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
           {error && <p className="error-text">{error}</p>}
           <div style={{ marginTop: 16 }}>
             <RotationLegend />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <LocalAxisReference object={object} />
           </div>
         </section>
 

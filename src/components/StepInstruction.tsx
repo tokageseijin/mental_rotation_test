@@ -24,7 +24,9 @@ export function StepInstruction({ index, step }: { index: number; step: Rotation
           {positive ? '+' : '−'}
           {magnitude}°
         </span>
-        <span className="kind">（{kind}）</span>
+        <span className="kind" style={step.type === 'local' ? { color: 'var(--bad)' } : undefined}>
+          （{kind}）
+        </span>
       </span>
     </div>
   );

@@ -19,6 +19,7 @@ export const DISTRACTOR_LABELS_JA: Record<DistractorCategory, string> = {
   sign: '回転方向（符号）の誤り',
   magnitude: '回転量の誤り',
   globalLocalSwap: 'グローバル / ローカルの取り違え',
+  offsetNeglect: '初期の傾きの無視',
   mirror: '鏡像・裏表の混同',
 };
 

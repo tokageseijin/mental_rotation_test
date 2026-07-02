@@ -2,7 +2,18 @@ import * as THREE from 'three';
 import type { Axis, DistractorCategory, Question, QuizOption, RotationStep, RotationType } from '../types';
 import { composeRotation, quaternionAngle } from '../three/rotation';
 import { createSnapshotScene, renderOrientation } from '../three/snapshotRenderer';
-import { difficultyOf } from './difficulty';
+import { poseDifficulty } from './difficulty';
+import { offsetDifficulty, poseFromOffsets, type PoseOffsets } from './pose';
+import {
+  buildCandidatePose,
+  questionFeatures,
+  temptationWeight,
+  TEMPT_CATEGORIES,
+  NEUTRAL_PERSONAL,
+  type PersonalModel,
+  type QuestionFeatures,
+  type TemptCategory,
+} from './errorModels';
 
 // --- small RNG helpers ------------------------------------------------------
 
@@ -19,142 +30,133 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// --- adaptive question planning --------------------------------------------
+// --- question sampling (matched to a target difficulty) --------------------
 
-/**
- * Choose rotation parameters aimed at a target difficulty (0..1), clamped by a
- * ceiling from settings. Higher targets add axes, allow local rotation and use
- * less "clean" angles.
- */
-export function planSteps(target: number): RotationStep[] {
-  const t = Math.max(0, Math.min(1, target));
-  const axisCount = t < 0.34 ? 1 : t < 0.67 ? (Math.random() < 0.5 ? 1 : 2) : Math.random() < 0.5 ? 2 : 3;
+const ALL_ANGLES = [90, -90, 180, 45, -45, 135, -135];
+const OFFSET_DEVS = [15, 30, 45, 60, 75];
+const MATCH_SAMPLES = 28; // rejection samples per question
 
-  const cleanAngles = [90, -90, 180];
-  const midAngles = [90, -90, 180, 45, -45];
-  const hardAngles = [45, -45, 90, -90, 135, -135, 180];
-  const angleSet = t < 0.34 ? cleanAngles : t < 0.67 ? midAngles : hardAngles;
-
-  // local rotation only enters as difficulty rises
-  const typeFor = (): RotationType => (t > 0.5 && Math.random() < t - 0.3 ? 'local' : 'global');
-
+/** A broadly-sampled challenge rotation (1–3 axes, mixed angles/frames). */
+function sampleSteps(): RotationStep[] {
+  const axisCount = 1 + rand(3);
   const usedAxes: Axis[] = [];
   const steps: RotationStep[] = [];
   for (let i = 0; i < axisCount; i++) {
     const remaining = AXES.filter((a) => !usedAxes.includes(a));
     const axis = pick(remaining.length ? remaining : AXES);
     usedAxes.push(axis);
-    steps.push({ axis, angleDeg: pick(angleSet), type: typeFor() });
+    const type: RotationType = Math.random() < 0.4 ? 'local' : 'global';
+    steps.push({ axis, angleDeg: pick(ALL_ANGLES), type });
   }
   return steps;
 }
 
-// --- distractor construction ------------------------------------------------
+/** A broadly-sampled initial pose (0–2 axes tilted off the grid). */
+function sampleOffsets(): PoseOffsets {
+  const offsets: PoseOffsets = { x: 90 * rand(4), y: 90 * rand(4), z: 90 * rand(4) };
+  for (const ax of shuffle(AXES).slice(0, rand(3))) offsets[ax] += pick(OFFSET_DEVS);
+  return offsets;
+}
+
+interface MatchedConfig {
+  baseQ: THREE.Quaternion;
+  offsets: PoseOffsets;
+  steps: RotationStep[];
+  poseDiff: number;
+}
+
+/**
+ * Sample several random questions and keep the one whose pose difficulty is
+ * closest to the target. This makes the realized difficulty actually track the
+ * target (the old threshold-based planner under-produced), so a rising rating
+ * yields harder, more varied questions and meaningful rewards.
+ */
+function generateMatched(target: number): MatchedConfig {
+  let best: MatchedConfig | null = null;
+  let bestErr = Infinity;
+  for (let i = 0; i < MATCH_SAMPLES; i++) {
+    const offsets = sampleOffsets();
+    const steps = sampleSteps();
+    const baseQ = poseFromOffsets(offsets);
+    const poseDiff = poseDifficulty(offsets, steps, baseQ);
+    const err = Math.abs(poseDiff - target);
+    if (err < bestErr) {
+      bestErr = err;
+      best = { baseQ, offsets, steps, poseDiff };
+    }
+  }
+  return best!;
+}
+
+// --- distractor construction (temptation-weighted, general rules) ----------
 
 interface Candidate {
   quaternion: THREE.Quaternion;
   category: DistractorCategory;
   flipX?: boolean;
+  weight: number;
 }
 
-function otherAxis(axis: Axis): Axis {
-  const rest = AXES.filter((a) => a !== axis);
-  return pick(rest);
-}
-
-function buildCandidates(steps: RotationStep[], base: THREE.Quaternion): Candidate[] {
+function temptingCandidates(
+  steps: RotationStep[],
+  base: THREE.Quaternion,
+  feats: QuestionFeatures,
+  personal: PersonalModel,
+): Candidate[] {
   const out: Candidate[] = [];
-
-  // All distractors are applied to the SAME starting pose (base) as the answer,
-  // so only the rotation itself differs.
-
-  // sign: reverse every direction
-  out.push({
-    category: 'sign',
-    quaternion: composeRotation(steps.map((s) => ({ ...s, angleDeg: -s.angleDeg })), base),
-  });
-
-  // axis: rotate each step around a different axis
-  out.push({
-    category: 'axis',
-    quaternion: composeRotation(steps.map((s) => ({ ...s, axis: otherAxis(s.axis) })), base),
-  });
-
-  // magnitude: nudge every angle by ±45°
-  out.push({
-    category: 'magnitude',
-    quaternion: composeRotation(
-      steps.map((s) => ({ ...s, angleDeg: s.angleDeg + (s.angleDeg >= 0 ? 45 : -45) })),
-      base,
-    ),
-  });
-
-  // global<->local swap (a non-identity base makes this differ even for 1 step)
-  out.push({
-    category: 'globalLocalSwap',
-    quaternion: composeRotation(
-      steps.map((s) => ({ ...s, type: s.type === 'global' ? 'local' : 'global' })),
-      base,
-    ),
-  });
-
-  // NOTE: a "mirror" (enantiomer) distractor is intentionally disabled for now.
-  // Many current models are axially symmetric, so a mirrored image can be
-  // indistinguishable from the correct answer — an unfair option. The flipX
-  // rendering path and the 'mirror' category are kept for when non-symmetric
-  // models make this fair again.
-
+  for (const cat of TEMPT_CATEGORIES) {
+    // general prior × personal multiplier (individual fitting)
+    const weight = temptationWeight(cat as TemptCategory, feats) * personal.multiplier(cat as TemptCategory, feats);
+    if (weight <= 0) continue;
+    out.push({ category: cat, quaternion: buildCandidatePose(cat as TemptCategory, steps, base), weight });
+  }
   return out;
+}
+
+/**
+ * Extra difficulty from how tempting the offered distractors are (0 = neutral).
+ * Couples the intrinsic pose difficulty with the actual options so the rating
+ * update (Elo) stays calibrated to the real chance of being lured.
+ */
+function temptationDifficulty(distractors: Candidate[]): number {
+  if (!distractors.length) return 0;
+  const mean = distractors.reduce((a, d) => a + Math.max(0, d.weight - 0.5), 0) / distractors.length;
+  return Math.max(0, Math.min(1, mean));
 }
 
 const MIN_SEPARATION = THREE.MathUtils.degToRad(22);
 
-/** Pick 3 distractors that are visually distinct from the answer and each other. */
+/**
+ * Pick 3 distractors: prefer the most tempting (highest weight) wrong answers,
+ * with a little exploration noise, but keep them visually distinct from the
+ * answer and from each other.
+ */
 function selectDistractors(candidates: Candidate[], correct: THREE.Quaternion): Candidate[] {
-  const chosen: Candidate[] = [];
-  const accepted = [{ quaternion: correct, flipX: false as boolean | undefined }];
+  const scored = candidates
+    .map((c) => ({ c, score: c.weight + Math.random() * 0.4 }))
+    .sort((a, b) => b.score - a.score);
 
-  for (const c of shuffle(candidates)) {
+  const chosen: Candidate[] = [];
+  const accepted = [correct];
+  for (const { c } of scored) {
     if (chosen.length === 3) break;
-    const tooClose = accepted.some(
-      (a) => !!a.flipX === !!c.flipX && quaternionAngle(a.quaternion, c.quaternion) < MIN_SEPARATION,
-    );
-    if (tooClose) continue;
+    if (accepted.some((a) => quaternionAngle(a, c.quaternion) < MIN_SEPARATION)) continue;
     chosen.push(c);
-    accepted.push({ quaternion: c.quaternion, flipX: c.flipX });
+    accepted.push(c.quaternion);
   }
 
-  // Fallback: if separation filtering left us short, top up with extra rotations.
+  // Fallback: top up with extra rotations if separation filtering left us short.
   while (chosen.length < 3) {
     const q = new THREE.Quaternion()
-      .setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(30 + chosen.length * 40))
+      .setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(35 + chosen.length * 40))
       .multiply(correct);
-    chosen.push({ quaternion: q, category: 'magnitude' });
+    chosen.push({ quaternion: q, category: 'magnitude', weight: 0 });
   }
   return chosen;
 }
 
-// --- starting pose ----------------------------------------------------------
-
-/**
- * The pose the object is shown in *before* the rotation is applied. Most of the
- * time the object already starts rotated (the common case the user asked for);
- * occasionally it starts upright. Clean quarter/half turns keep the pose
- * readable so the user can mentally simulate from it.
- */
-function randomBaseOrientation(): THREE.Quaternion {
-  if (Math.random() < 0.18) return new THREE.Quaternion(); // sometimes upright
-  const turns = Math.random() < 0.5 ? 1 : 2;
-  const angles = [90, -90, 180];
-  const steps: RotationStep[] = [];
-  const used: Axis[] = [];
-  for (let i = 0; i < turns; i++) {
-    const remaining = AXES.filter((a) => !used.includes(a));
-    const axis = pick(remaining);
-    used.push(axis);
-    steps.push({ axis, angleDeg: pick(angles), type: 'global' });
-  }
-  return composeRotation(steps);
+function baseHasOffset(offsets: { x: number; y: number; z: number }): boolean {
+  return offsetDifficulty(offsets.x) + offsetDifficulty(offsets.y) + offsetDifficulty(offsets.z) > 0;
 }
 
 // --- public API -------------------------------------------------------------
@@ -163,23 +165,48 @@ export interface GeneratedQuestion extends Question {
   minDistractorAngleRad: number;
   /** rendered image of the fixed pre-rotation pose (the "見本") */
   baseImageUrl: string;
+  /** the starting orientation, for animating base -> answer after grading */
+  baseQ: THREE.Quaternion;
 }
 
-/**
- * Build a full 4-choice question from a resolved model object.
- * Renders the fixed base pose + 1 correct + 3 distractor thumbnails, all from
- * the same camera so the user can simulate the rotation from the sample view.
- */
+const TEMPT_COUPLING = 0.15; // how much distractor temptation adds to difficulty
+
+/** Build a full 4-choice question from a resolved model object. */
 export function generateQuestion(
   modelId: string,
   object: THREE.Object3D,
   target: number,
+  personal: PersonalModel = NEUTRAL_PERSONAL,
 ): GeneratedQuestion {
-  const steps = planSteps(target);
-  const baseQ = randomBaseOrientation();
-  const correctQ = composeRotation(steps, baseQ);
-
-  const distractors = selectDistractors(buildCandidates(steps, baseQ), correctQ);
+  // Rejection-sample on the FINAL difficulty (pose + temptation) so the realized
+  // question — including how tempting its distractors are — actually matches the
+  // target. Only rendering is deferred to the winning sample.
+  let best: {
+    baseQ: THREE.Quaternion;
+    correctQ: THREE.Quaternion;
+    steps: RotationStep[];
+    distractors: Candidate[];
+    difficulty: number;
+  } | null = null;
+  let bestErr = Infinity;
+  for (let i = 0; i < MATCH_SAMPLES; i++) {
+    const offsets = sampleOffsets();
+    const steps = sampleSteps();
+    const baseQ = poseFromOffsets(offsets);
+    const correctQ = composeRotation(steps, baseQ);
+    const feats = questionFeatures(steps, baseHasOffset(offsets));
+    const distractors = selectDistractors(temptingCandidates(steps, baseQ, feats, personal), correctQ);
+    const difficulty = Math.min(
+      1,
+      poseDifficulty(offsets, steps, baseQ) + TEMPT_COUPLING * temptationDifficulty(distractors),
+    );
+    const err = Math.abs(difficulty - target);
+    if (err < bestErr) {
+      bestErr = err;
+      best = { baseQ, correctQ, steps, distractors, difficulty };
+    }
+  }
+  const { baseQ, correctQ, steps, distractors, difficulty } = best!;
 
   const snap = createSnapshotScene(object);
   try {
@@ -187,22 +214,24 @@ export function generateQuestion(
     const correctOption: QuizOption = {
       imageUrl: renderOrientation(snap, correctQ),
       correct: true,
+      orientation: correctQ.toArray() as [number, number, number, number],
     };
     const distractorOptions: QuizOption[] = distractors.map((d) => ({
       imageUrl: renderOrientation(snap, d.quaternion, { flipX: d.flipX }),
       correct: false,
       distractorCategory: d.category,
+      orientation: d.quaternion.toArray() as [number, number, number, number],
+      flipX: d.flipX,
     }));
 
     const options = shuffle([correctOption, ...distractorOptions]);
     const correctIndex = options.findIndex((o) => o.correct);
 
     const minDistractorAngleRad = Math.min(
-      ...distractors.map((d) => (d.flipX ? Math.PI : quaternionAngle(correctQ, d.quaternion))),
+      ...distractors.map((d) => quaternionAngle(correctQ, d.quaternion)),
     );
-    const difficulty = difficultyOf({ steps, minDistractorAngleRad });
 
-    return { modelId, steps, difficulty, options, correctIndex, minDistractorAngleRad, baseImageUrl };
+    return { modelId, steps, difficulty, options, correctIndex, minDistractorAngleRad, baseImageUrl, baseQ };
   } finally {
     snap.dispose();
   }
@@ -218,31 +247,28 @@ export interface DrawingTask {
   baseImageUrl: string;
   /** correct post-rotation result, revealed after the user has drawn */
   answerImageUrl: string;
+  /** the starting orientation, for animating base -> answer on reveal */
+  baseQ: THREE.Quaternion;
 }
 
-/**
- * Build a drawing task: just the base pose + the correct answer, both from the
- * same camera. No distractors (the user sketches the result instead of picking).
- */
+/** Build a drawing task: base pose + the correct answer, from the same camera. */
 export function generateDrawingTask(
   modelId: string,
   object: THREE.Object3D,
   target: number,
 ): DrawingTask {
-  const steps = planSteps(target);
-  const baseQ = randomBaseOrientation();
+  const { baseQ, steps, poseDiff } = generateMatched(target);
   const correctQ = composeRotation(steps, baseQ);
-  // No distractors here, so difficulty omits the "closeness" term.
-  const difficulty = difficultyOf({ steps });
 
   const snap = createSnapshotScene(object);
   try {
     return {
       modelId,
       steps,
-      difficulty,
+      difficulty: poseDiff,
       baseImageUrl: renderOrientation(snap, baseQ),
       answerImageUrl: renderOrientation(snap, correctQ),
+      baseQ,
     };
   } finally {
     snap.dispose();

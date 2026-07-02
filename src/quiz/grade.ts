@@ -17,11 +17,12 @@ export function gradeChoice(
   question: GeneratedQuestion,
   chosenIndex: number,
   ratingBefore: number,
+  k = 48,
 ): GradeResult {
   const chosen = question.options[chosenIndex];
   const correct = !!chosen?.correct;
   const { axisCount, totalAngle, rotationType } = stepStats(question.steps);
-  const { next } = updateRating(ratingBefore, question.difficulty, correct);
+  const { next } = updateRating(ratingBefore, question.difficulty, correct, k);
 
   const record: AttemptRecord = {
     at: Date.now(),
@@ -44,11 +45,16 @@ export function gradeChoice(
  * (0=よくできた .. 3=すごくできなかった). The self rating maps to a continuous
  * Elo score; drawing uses a smaller K because self assessment is noisier.
  */
-export function gradeDrawing(task: DrawingTask, selfRating: number, ratingBefore: number): GradeResult {
+export function gradeDrawing(
+  task: DrawingTask,
+  selfRating: number,
+  ratingBefore: number,
+  k = 36,
+): GradeResult {
   const { axisCount, totalAngle, rotationType } = stepStats(task.steps);
   const score = selfRatingScore(selfRating);
   const correct = selfRatingIsSuccess(selfRating);
-  const { next } = updateRatingScore(ratingBefore, task.difficulty, score, 36);
+  const { next } = updateRatingScore(ratingBefore, task.difficulty, score, k);
 
   const record: AttemptRecord = {
     at: Date.now(),
