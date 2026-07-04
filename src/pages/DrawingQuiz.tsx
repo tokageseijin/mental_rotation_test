@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type * as THREE from 'three';
 import type { ModelEntry } from '../types';
+import type { ModelConfig } from '../store/modelConfigStore';
+import type { Scoring } from '../store/sessionStore';
 import { useProfile } from '../store/profileStore';
 import { useSettings } from '../store/settingsStore';
 import { useProblemLog } from '../store/problemLogStore';
@@ -21,21 +23,25 @@ const SELF_COLORS = ['var(--ok)', '#6fae5a', '#d59a52', 'var(--bad)'];
 interface Props {
   selected: ModelEntry;
   object: THREE.Object3D | null;
+  config?: ModelConfig;
+  scoring: Scoring;
+  round: number;
+  onNext: () => void;
   loading: boolean;
   needsPermission: boolean;
   error: string | null;
   reload: () => void;
 }
 
-export function DrawingQuiz({ selected, object, loading, needsPermission, error, reload }: Props) {
+export function DrawingQuiz({ selected, object, config, scoring, round, onNext, loading, needsPermission, error, reload }: Props) {
   const modes = useProfile((s) => s.modes);
   const history = useProfile((s) => s.history);
   const recordAttempt = useProfile((s) => s.recordAttempt);
   const logProblem = useProblemLog((s) => s.add);
   const maxDifficulty = useSettings((s) => s.maxDifficulty);
+  const renderFov = useSettings((s) => s.renderFov);
   const recent = useMemo(() => recentPerf(history, 'drawing'), [history]);
 
-  const [round, setRound] = useState(0);
   const [task, setTask] = useState<DrawingTask | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [selfPicked, setSelfPicked] = useState<number | null>(null);
@@ -50,27 +56,38 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
     lastKeyRef.current = key;
     setRevealed(false);
     setSelfPicked(null);
-    setTask(generateDrawingTask(selected.id, object, pickTarget(modes.drawing.rating, maxDifficulty, recent)));
+    setTask(
+      generateDrawingTask(
+        selected.id,
+        object,
+        pickTarget(modes.drawing.rating, maxDifficulty, recent),
+        config,
+        renderFov,
+      ),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, selected.id, round]);
 
   function handleSelfEval(index: number) {
     if (!task || selfPicked !== null) return;
     const graded = gradeDrawing(task, index, modes.drawing.rating, adaptiveK(36, recent));
-    recordAttempt(graded.record);
-    logProblem({
-      at: Date.now(),
-      mode: 'drawing',
-      modelId: task.modelId,
-      modelName: selected.name,
-      baseQ: task.baseQ.toArray() as [number, number, number, number],
-      steps: task.steps,
-      difficulty: task.difficulty,
-      correct: graded.correct,
-      selfRating: index,
-    });
+    // Enjoy mode: practice only — no rating/history/log changes.
+    if (scoring === 'rating') {
+      recordAttempt(graded.record);
+      logProblem({
+        at: Date.now(),
+        mode: 'drawing',
+        modelId: task.modelId,
+        modelName: selected.name,
+        baseQ: task.baseQ.toArray() as [number, number, number, number],
+        steps: task.steps,
+        difficulty: task.difficulty,
+        correct: graded.correct,
+        selfRating: index,
+      });
+    }
     setSelfPicked(index);
-    setDelta(graded.ratingAfter - graded.record.ratingBefore);
+    setDelta(scoring === 'rating' ? graded.ratingAfter - graded.record.ratingBefore : 0);
   }
 
   return (
@@ -89,7 +106,7 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
               {revealed ? '回転の再生（見本 → 正解）' : '見本（回転前）'}
             </div>
             {revealed && task ? (
-              <RotationReplay object={object} steps={task.steps} baseQ={task.baseQ} />
+              <RotationReplay object={object} steps={task.steps} baseQ={task.baseQ} config={config} fov={renderFov} />
             ) : task ? (
               <img className="sample" src={task.baseImageUrl} alt="回転前の見本" />
             ) : (
@@ -110,7 +127,7 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
             <RotationLegend />
           </div>
           <div style={{ marginTop: 16 }}>
-            <LocalAxisReference object={object} />
+            <LocalAxisReference object={object} config={config} />
           </div>
         </section>
 
@@ -190,10 +207,11 @@ export function DrawingQuiz({ selected, object, loading, needsPermission, error,
                   {selfPicked !== null && (
                     <div style={{ marginTop: 20 }}>
                       <div className="callout ok">
-                        記録しました。レーティング {delta >= 0 ? '+' : ''}
-                        {Math.round(delta)}
+                        {scoring === 'enjoy'
+                          ? 'エンジョイ：レート変動なし'
+                          : `記録しました。レーティング ${delta >= 0 ? '+' : ''}${Math.round(delta)}`}
                       </div>
-                      <button className="btn primary lg" style={{ marginTop: 12 }} onClick={() => setRound((r) => r + 1)}>
+                      <button className="btn primary lg" style={{ marginTop: 12 }} onClick={onNext}>
                         次の問題 →
                       </button>
                     </div>

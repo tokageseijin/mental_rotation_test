@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Axis, DistractorCategory, Question, QuizOption, RotationStep, RotationType } from '../types';
+import { hasAnyPlaneSymmetry, type ModelConfig } from '../store/modelConfigStore';
 import { composeRotation, quaternionAngle } from '../three/rotation';
 import { createSnapshotScene, renderOrientation } from '../three/snapshotRenderer';
 import { poseDifficulty } from './difficulty';
@@ -159,6 +160,35 @@ function baseHasOffset(offsets: { x: number; y: number; z: number }): boolean {
   return offsetDifficulty(offsets.x) + offsetDifficulty(offsets.y) + offsetDifficulty(offsets.z) > 0;
 }
 
+// Mirror (enantiomer) distractor: same orientation as the correct answer but
+// horizontally flipped. Only fair when the model is NOT plane-symmetric, since a
+// plane-symmetric object's mirror is indistinguishable from the original.
+const MIRROR_WEIGHT = 0.7;
+
+/**
+ * Final 3 distractors for a question. When mirror is allowed we force-include the
+ * mirror candidate (it shares the answer's orientation, so it bypasses the normal
+ * angular-separation filter) plus 2 tempting distractors; otherwise 3 tempting.
+ */
+function buildDistractors(
+  steps: RotationStep[],
+  base: THREE.Quaternion,
+  correctQ: THREE.Quaternion,
+  feats: QuestionFeatures,
+  personal: PersonalModel,
+  allowMirror: boolean,
+): Candidate[] {
+  const tempting = selectDistractors(temptingCandidates(steps, base, feats, personal), correctQ);
+  if (!allowMirror) return tempting;
+  const mirror: Candidate = {
+    quaternion: correctQ.clone(),
+    category: 'mirror',
+    flipX: true,
+    weight: MIRROR_WEIGHT,
+  };
+  return [mirror, ...tempting.slice(0, 2)];
+}
+
 // --- public API -------------------------------------------------------------
 
 export interface GeneratedQuestion extends Question {
@@ -177,7 +207,10 @@ export function generateQuestion(
   object: THREE.Object3D,
   target: number,
   personal: PersonalModel = NEUTRAL_PERSONAL,
+  config?: ModelConfig,
+  fov?: number,
 ): GeneratedQuestion {
+  const allowMirror = config ? !hasAnyPlaneSymmetry(config.symmetry) : false;
   // Rejection-sample on the FINAL difficulty (pose + temptation) so the realized
   // question — including how tempting its distractors are — actually matches the
   // target. Only rendering is deferred to the winning sample.
@@ -195,7 +228,7 @@ export function generateQuestion(
     const baseQ = poseFromOffsets(offsets);
     const correctQ = composeRotation(steps, baseQ);
     const feats = questionFeatures(steps, baseHasOffset(offsets));
-    const distractors = selectDistractors(temptingCandidates(steps, baseQ, feats, personal), correctQ);
+    const distractors = buildDistractors(steps, baseQ, correctQ, feats, personal, allowMirror);
     const difficulty = Math.min(
       1,
       poseDifficulty(offsets, steps, baseQ) + TEMPT_COUPLING * temptationDifficulty(distractors),
@@ -208,7 +241,7 @@ export function generateQuestion(
   }
   const { baseQ, correctQ, steps, distractors, difficulty } = best!;
 
-  const snap = createSnapshotScene(object);
+  const snap = createSnapshotScene(object, config, fov);
   try {
     const baseImageUrl = renderOrientation(snap, baseQ);
     const correctOption: QuizOption = {
@@ -256,11 +289,13 @@ export function generateDrawingTask(
   modelId: string,
   object: THREE.Object3D,
   target: number,
+  config?: ModelConfig,
+  fov?: number,
 ): DrawingTask {
   const { baseQ, steps, poseDiff } = generateMatched(target);
   const correctQ = composeRotation(steps, baseQ);
 
-  const snap = createSnapshotScene(object);
+  const snap = createSnapshotScene(object, config, fov);
   try {
     return {
       modelId,

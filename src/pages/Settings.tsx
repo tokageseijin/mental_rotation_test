@@ -2,14 +2,18 @@ import { useRef, useState } from 'react';
 import { useSettings } from '../store/settingsStore';
 import { useProfile } from '../store/profileStore';
 import { useProblemLog } from '../store/problemLogStore';
+import { useThumbnails } from '../store/thumbnailStore';
 import { downloadExport, importFromFile } from '../store/persistence';
+import { FOV_MIN, FOV_MAX } from '../three/renderCamera';
 
 export function Settings() {
-  const { defaultMode, maxDifficulty, setDefaultMode, setMaxDifficulty } = useSettings();
+  const { defaultMode, maxDifficulty, renderFov, setDefaultMode, setMaxDifficulty, setRenderFov } =
+    useSettings();
   const resetProfile = useProfile((s) => s.reset);
   const resetRanks = useProfile((s) => s.resetRanks);
   const problemLog = useProblemLog((s) => s.records);
   const clearProblemLog = useProblemLog((s) => s.clear);
+  const clearThumbnails = useThumbnails((s) => s.clear);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -68,6 +72,24 @@ export function Settings() {
           onChange={(e) => setMaxDifficulty(Number(e.target.value))}
         />
         <p className="muted">出題される問題の難しさに上限を設けます。慣れるまで低めがおすすめです。</p>
+
+        <label className="field" htmlFor="fov" style={{ marginTop: 20 }}>
+          レンダリングの画角（FOV）: {Math.round(renderFov)}°
+        </label>
+        <input
+          id="fov"
+          type="range"
+          min={FOV_MIN}
+          max={FOV_MAX}
+          step={1}
+          value={renderFov}
+          style={{ width: '100%' }}
+          onChange={(e) => setRenderFov(Number(e.target.value))}
+        />
+        <p className="muted">
+          クイズの見本・選択肢・回転再生を描くカメラの画角です。小さいほど遠近感が弱く（望遠寄りで平ら）、
+          大きいほど強くなります。被写体の大きさは一定に保たれます。既定は35°。
+        </p>
       </div>
 
       <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>
@@ -120,6 +142,25 @@ export function Settings() {
         <p className="muted" style={{ marginTop: 8 }}>
           ※「すべてリセット」は回答履歴も消えます（成績ページの集計が空になります）。問題ログは別途「問題ログを削除」から。
         </p>
+      </div>
+
+      <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>
+        <strong>サムネイル</strong>
+        <p className="muted" style={{ marginTop: 4 }}>
+          モデル一覧のサムネイルはキャッシュされ、向き・オフセットを変えたときに自動で作り直されます。
+          リセットすると全モデルのサムネイルを次回表示時に再生成します。
+        </p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button
+            className="btn"
+            onClick={() => {
+              clearThumbnails();
+              setMsg({ kind: 'ok', text: 'サムネイルをリセットしました。' });
+            }}
+          >
+            サムネイルをリセット
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>

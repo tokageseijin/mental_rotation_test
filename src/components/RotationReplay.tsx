@@ -2,7 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { RotationStep } from '../types';
+import type { ModelConfig } from '../store/modelConfigStore';
 import { composeRotation } from '../three/rotation';
+import { BASE_FOV, quizCameraDistance } from '../three/renderCamera';
 
 // Looping animation of the model rotating from the base pose through each step
 // to the correct answer, then holding briefly and repeating. Same camera as the
@@ -15,11 +17,22 @@ interface Props {
   object: THREE.Object3D | null;
   steps: RotationStep[];
   baseQ: THREE.Quaternion;
+  config?: ModelConfig;
+  fov?: number;
 }
 
-/** Centre + normalise the object exactly like the snapshot framing. */
-function frameObject(object: THREE.Object3D): THREE.Group {
+/** Centre + normalise + apply config exactly like the snapshot framing. */
+function frameObject(object: THREE.Object3D, config?: ModelConfig): THREE.Group {
   const model = object.clone(true);
+  if (config) {
+    const o = config.orientation;
+    model.rotation.set(
+      THREE.MathUtils.degToRad(o.x),
+      THREE.MathUtils.degToRad(o.y),
+      THREE.MathUtils.degToRad(o.z),
+    );
+    model.updateMatrixWorld(true);
+  }
   const box = new THREE.Box3().setFromObject(model);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -28,6 +41,7 @@ function frameObject(object: THREE.Object3D): THREE.Group {
   const holder = new THREE.Group();
   holder.add(model);
   holder.scale.setScalar(1.7 / maxDim);
+  if (config) holder.position.set(config.offset.x, config.offset.y, config.offset.z);
   return holder;
 }
 
@@ -40,14 +54,16 @@ function Scene({
   steps,
   baseQ,
   playing,
+  config,
 }: {
   object: THREE.Object3D;
   steps: RotationStep[];
   baseQ: THREE.Quaternion;
   playing: boolean;
+  config?: ModelConfig;
 }) {
   const pivot = useRef<THREE.Group>(null);
-  const holder = useMemo(() => frameObject(object), [object]);
+  const holder = useMemo(() => frameObject(object, config), [object, config]);
 
   // orientation at the start of each step, ending on the correct answer
   const orientations = useMemo(() => {
@@ -90,14 +106,14 @@ function Scene({
   );
 }
 
-export function RotationReplay({ object, steps, baseQ }: Props) {
+export function RotationReplay({ object, steps, baseQ, config, fov = BASE_FOV }: Props) {
   const [playing, setPlaying] = useState(true);
   if (!object) return null;
   return (
     <div>
       <div className="replay-canvas">
-        <Canvas camera={{ position: [0, 0, 3.6], fov: 35 }} dpr={[1, 2]} frameloop="always">
-          <Scene object={object} steps={steps} baseQ={baseQ} playing={playing} />
+        <Canvas camera={{ position: [0, 0, quizCameraDistance(fov)], fov }} dpr={[1, 2]} frameloop="always">
+          <Scene object={object} steps={steps} baseQ={baseQ} playing={playing} config={config} />
         </Canvas>
       </div>
       <div className="row" style={{ marginTop: 8, justifyContent: 'center' }}>

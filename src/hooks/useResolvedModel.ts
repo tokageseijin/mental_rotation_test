@@ -13,8 +13,16 @@ export interface ResolvedModelState {
   reload: () => void;
 }
 
-/** Resolve a library entry to a THREE.Object3D, handling FSA permission state. */
-export function useResolvedModel(entry: ModelEntry | null): ResolvedModelState {
+/**
+ * Resolve a library entry to a THREE.Object3D, handling FSA permission state.
+ * Pass `{ enabled: false }` to skip resolution entirely (e.g. when a cached
+ * thumbnail already covers this model, so its geometry never needs loading).
+ */
+export function useResolvedModel(
+  entry: ModelEntry | null,
+  options?: { enabled?: boolean },
+): ResolvedModelState {
+  const enabled = options?.enabled ?? true;
   const [object, setObject] = useState<THREE.Object3D | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +32,7 @@ export function useResolvedModel(entry: ModelEntry | null): ResolvedModelState {
 
   useEffect(() => {
     let cancelled = false;
-    if (!entry) {
+    if (!entry || !enabled) {
       setObject(null);
       setLoading(false);
       setError(null);
@@ -55,7 +63,7 @@ export function useResolvedModel(entry: ModelEntry | null): ResolvedModelState {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.id, nonce]);
+  }, [entry?.id, nonce, enabled]);
 
   const reload = () => {
     interactiveRef.current = true;

@@ -1,8 +1,42 @@
 import * as THREE from 'three';
+import type { ModelConfig } from '../store/modelConfigStore';
+import { BASE_FOV, quizCameraDistance } from './renderCamera';
 
 // Off-screen rasteriser used to turn a model at a given orientation into an
 // image. A single WebGLRenderer is reused across all snapshots for speed; each
 // question builds one SnapshotScene and renders it at 4 orientations.
+
+/**
+ * Bake a model's authoring config into a centred+normalised holder.
+ * - orientation: applied as a global Euler rotation *before* centring, so it
+ *   changes which face reads as "front" (centring only translates, so it holds).
+ * - offset: applied *after* scaling, shifting the object off the pivot centre so
+ *   rotations orbit the origin (a deliberate framing/authoring choice).
+ * Returns the holder to add under the rotating pivot (snapshot) or scene (axes).
+ */
+export function buildConfiguredHolder(object: THREE.Object3D, config?: ModelConfig): THREE.Group {
+  const model = object.clone(true);
+  if (config) {
+    const o = config.orientation;
+    model.rotation.set(
+      THREE.MathUtils.degToRad(o.x),
+      THREE.MathUtils.degToRad(o.y),
+      THREE.MathUtils.degToRad(o.z),
+    );
+    model.updateMatrixWorld(true);
+  }
+  const box = new THREE.Box3().setFromObject(model);
+  const center = box.getCenter(new THREE.Vector3());
+  const sizeVec = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z) || 1;
+
+  model.position.sub(center); // re-centre
+  const holder = new THREE.Group();
+  holder.add(model);
+  holder.scale.setScalar(1.7 / maxDim); // normalise size in view
+  if (config) holder.position.set(config.offset.x, config.offset.y, config.offset.z);
+  return holder;
+}
 
 let renderer: THREE.WebGLRenderer | null = null;
 
@@ -33,21 +67,15 @@ export interface SnapshotScene {
  * Build a scene that frames `object`: it is centred at the origin and scaled to
  * a unit size so different models are framed consistently.
  */
-export function createSnapshotScene(object: THREE.Object3D): SnapshotScene {
+export function createSnapshotScene(
+  object: THREE.Object3D,
+  config?: ModelConfig,
+  fov: number = BASE_FOV,
+): SnapshotScene {
   const scene = new THREE.Scene();
   const pivot = new THREE.Group();
 
-  const model = object.clone(true);
-  const box = new THREE.Box3().setFromObject(model);
-  const center = box.getCenter(new THREE.Vector3());
-  const sizeVec = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z) || 1;
-
-  model.position.sub(center); // re-centre
-  const holder = new THREE.Group();
-  holder.add(model);
-  holder.scale.setScalar(1.7 / maxDim); // normalise size in view
-  pivot.add(holder);
+  pivot.add(buildConfiguredHolder(object, config));
   scene.add(pivot);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x707784, 1.15));
@@ -58,8 +86,8 @@ export function createSnapshotScene(object: THREE.Object3D): SnapshotScene {
   fill.position.set(-3, -1, -2);
   scene.add(fill);
 
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-  camera.position.set(0, 0, 3.6);
+  const camera = new THREE.PerspectiveCamera(fov, 1, 0.1, 100);
+  camera.position.set(0, 0, quizCameraDistance(fov));
   camera.lookAt(0, 0, 0);
 
   return {
@@ -242,14 +270,16 @@ export function renderAxisLegend(size = 260): string {
   return url;
 }
 
-// --- local axis reference ---------------------------------------------------
+// --- library thumbnail ------------------------------------------------------
 
 /**
- * Render the object at identity in a quarter view with its local +X/+Y/+Z axes
- * drawn as coloured arrows. Axes share the scene (and depth buffer) with the
- * object, so the front/back occlusion between axes and object is preserved.
+ * Render a small quarter-view thumbnail of the object with its config applied
+ * (orientation baked, offset shifting it off the centre) — no axes. Used for the
+ * model-list cards so each card shows the actual configured pose. We deliberately
+ * do NOT dispose here: the clone shares geometry with the live model object, so
+ * disposing would needlessly drop/re-upload GPU buffers the preview still uses.
  */
-export function renderLocalAxes(object: THREE.Object3D, size = 320): string {
+export function renderThumbnail(object: THREE.Object3D, config?: ModelConfig, size = 176): string {
   const scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight(0xffffff, 0x707784, 1.15));
   const key = new THREE.DirectionalLight(0xffffff, 1.3);
@@ -259,17 +289,36 @@ export function renderLocalAxes(object: THREE.Object3D, size = 320): string {
   fill.position.set(-3, -1, -2);
   scene.add(fill);
 
-  // centre + normalise the object exactly like the snapshot framing
-  const model = object.clone(true);
-  const box = new THREE.Box3().setFromObject(model);
-  const center = box.getCenter(new THREE.Vector3());
-  const sizeVec = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z) || 1;
-  model.position.sub(center);
-  const holder = new THREE.Group();
-  holder.add(model);
-  holder.scale.setScalar(1.7 / maxDim);
-  scene.add(holder);
+  scene.add(buildConfiguredHolder(object, config));
+
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  camera.position.set(2.7, 2.2, 3.0); // quarter view (matches the axis reference)
+  camera.lookAt(0, 0, 0);
+
+  const r = getRenderer(size);
+  r.render(scene, camera);
+  return r.domElement.toDataURL('image/png');
+}
+
+// --- local axis reference ---------------------------------------------------
+
+/**
+ * Render the object at identity in a quarter view with its local +X/+Y/+Z axes
+ * drawn as coloured arrows. Axes share the scene (and depth buffer) with the
+ * object, so the front/back occlusion between axes and object is preserved.
+ */
+export function renderLocalAxes(object: THREE.Object3D, config?: ModelConfig, size = 320): string {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x707784, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 1.3);
+  key.position.set(2.5, 3.5, 4);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+  fill.position.set(-3, -1, -2);
+  scene.add(fill);
+
+  // centre + normalise + apply config exactly like the snapshot framing
+  scene.add(buildConfiguredHolder(object, config));
 
   // local axes at the object origin (same normalised space); same line style as
   // the global legend, plus a +rotation curl near each axis tip.

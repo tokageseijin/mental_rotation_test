@@ -1,6 +1,7 @@
 import { useSettings } from './settingsStore';
 import { useProfile } from './profileStore';
 import { useLibrary } from './libraryStore';
+import { clampFov } from '../three/renderCamera';
 
 // Import / export of all user data as a single JSON file.
 //
@@ -15,7 +16,7 @@ export interface ExportBundle {
   app: 'mental-rotation-trainer';
   version: number;
   exportedAt: number;
-  settings: { defaultMode: string; maxDifficulty: number };
+  settings: { defaultMode: string; maxDifficulty: number; renderFov?: number };
   profile: {
     modes: ReturnType<typeof useProfile.getState>['modes'];
     history: ReturnType<typeof useProfile.getState>['history'];
@@ -31,7 +32,7 @@ export function buildExport(): ExportBundle {
     app: 'mental-rotation-trainer',
     version: EXPORT_VERSION,
     exportedAt: Date.now(),
-    settings: { defaultMode: s.defaultMode, maxDifficulty: s.maxDifficulty },
+    settings: { defaultMode: s.defaultMode, maxDifficulty: s.maxDifficulty, renderFov: s.renderFov },
     profile: { modes: p.modes, history: p.history },
     library: { userModels: l.userModels },
   };
@@ -62,6 +63,7 @@ export function applyImport(raw: unknown): void {
     useSettings.getState().replaceAll({
       defaultMode: bundle.settings.defaultMode === 'drawing' ? 'drawing' : 'choice',
       maxDifficulty: clamp01(bundle.settings.maxDifficulty ?? 1),
+      renderFov: clampFov(bundle.settings.renderFov ?? 35),
     });
   }
   if (bundle.profile?.modes && bundle.profile.history) {
