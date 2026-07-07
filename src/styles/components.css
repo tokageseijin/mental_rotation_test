@@ -372,6 +372,33 @@
   border-radius: var(--radius);
   overflow: hidden;
 }
+/* transport controls: first / step-back / play-pause / step-fwd / last */
+.replay-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  max-width: var(--sample-size);
+}
+.replay-controls .tb-btn {
+  width: 36px;
+  height: 34px;
+}
+.replay-controls .play-btn {
+  width: 46px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.replay-controls .play-btn:hover {
+  background: var(--accent-hover);
+}
+.tb-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 
 /* local-axis reference — same card/label layout as the sample; image kept at
    90% of the sample (--work-img-size) and centered (leaves side margins). */
