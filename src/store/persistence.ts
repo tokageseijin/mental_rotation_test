@@ -16,7 +16,14 @@ export interface ExportBundle {
   app: 'mental-rotation-trainer';
   version: number;
   exportedAt: number;
-  settings: { defaultMode: string; maxDifficulty: number; renderFov?: number };
+  settings: {
+    defaultMode: string;
+    maxDifficulty: number;
+    renderFov?: number;
+    enjoyDifficulty?: number;
+    enjoyStepCount?: number;
+    fitRotationSafe?: boolean;
+  };
   profile: {
     modes: ReturnType<typeof useProfile.getState>['modes'];
     history: ReturnType<typeof useProfile.getState>['history'];
@@ -32,7 +39,14 @@ export function buildExport(): ExportBundle {
     app: 'mental-rotation-trainer',
     version: EXPORT_VERSION,
     exportedAt: Date.now(),
-    settings: { defaultMode: s.defaultMode, maxDifficulty: s.maxDifficulty, renderFov: s.renderFov },
+    settings: {
+      defaultMode: s.defaultMode,
+      maxDifficulty: s.maxDifficulty,
+      renderFov: s.renderFov,
+      enjoyDifficulty: s.enjoyDifficulty,
+      enjoyStepCount: s.enjoyStepCount,
+      fitRotationSafe: s.fitRotationSafe,
+    },
     profile: { modes: p.modes, history: p.history },
     library: { userModels: l.userModels },
   };
@@ -60,10 +74,16 @@ export function applyImport(raw: unknown): void {
     throw new ImportError('対応していないバージョンのバックアップです。');
   }
   if (bundle.settings) {
+    const st = bundle.settings;
     useSettings.getState().replaceAll({
-      defaultMode: bundle.settings.defaultMode === 'drawing' ? 'drawing' : 'choice',
-      maxDifficulty: clamp01(bundle.settings.maxDifficulty ?? 1),
-      renderFov: clampFov(bundle.settings.renderFov ?? 35),
+      defaultMode: st.defaultMode === 'drawing' ? 'drawing' : 'choice',
+      maxDifficulty: clamp01(st.maxDifficulty ?? 1),
+      renderFov: clampFov(st.renderFov ?? 35),
+      ...(st.enjoyDifficulty != null ? { enjoyDifficulty: clamp01(st.enjoyDifficulty) } : {}),
+      ...(st.enjoyStepCount != null
+        ? { enjoyStepCount: Math.max(1, Math.min(4, Math.round(st.enjoyStepCount))) }
+        : {}),
+      ...(typeof st.fitRotationSafe === 'boolean' ? { fitRotationSafe: st.fitRotationSafe } : {}),
     });
   }
   if (bundle.profile?.modes && bundle.profile.history) {

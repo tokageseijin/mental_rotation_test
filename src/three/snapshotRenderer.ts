@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { ModelConfig } from '../store/modelConfigStore';
-import { BASE_FOV, quizCameraDistance } from './renderCamera';
+import { BASE_FOV, FIT_MARGIN, maxFitRadius, quizCameraDistance } from './renderCamera';
+
+/** Default AABB-based framing: the longest side maps to this many units. */
+const MAXDIM_TARGET = 1.7;
 
 // Off-screen rasteriser used to turn a model at a given orientation into an
 // image. A single WebGLRenderer is reused across all snapshots for speed; each
@@ -12,9 +15,17 @@ import { BASE_FOV, quizCameraDistance } from './renderCamera';
  *   changes which face reads as "front" (centring only translates, so it holds).
  * - offset: applied *after* scaling, shifting the object off the pivot centre so
  *   rotations orbit the origin (a deliberate framing/authoring choice).
+ * - rotationSafe: scale so the bounding sphere (plus the offset orbit) fits the
+ *   frustum at `fov`, i.e. the model never clips at any rotation. Otherwise the
+ *   longest AABB side is normalised (larger on screen, but can clip when rotated).
  * Returns the holder to add under the rotating pivot (snapshot) or scene (axes).
  */
-export function buildConfiguredHolder(object: THREE.Object3D, config?: ModelConfig): THREE.Group {
+export function buildConfiguredHolder(
+  object: THREE.Object3D,
+  config?: ModelConfig,
+  fov: number = BASE_FOV,
+  rotationSafe = false,
+): THREE.Group {
   const model = object.clone(true);
   if (config) {
     const o = config.orientation;
@@ -33,8 +44,21 @@ export function buildConfiguredHolder(object: THREE.Object3D, config?: ModelConf
   model.position.sub(center); // re-centre
   const holder = new THREE.Group();
   holder.add(model);
-  holder.scale.setScalar(1.7 / maxDim); // normalise size in view
-  if (config) holder.position.set(config.offset.x, config.offset.y, config.offset.z);
+
+  const offset = config ? config.offset : { x: 0, y: 0, z: 0 };
+  let scale: number;
+  if (rotationSafe) {
+    // fit the worst-case extent (bounding-sphere radius + offset orbit) inside
+    // the frustum so no rotation clips.
+    const sphereR = 0.5 * Math.hypot(sizeVec.x, sizeVec.y, sizeVec.z) || 1;
+    const offsetLen = Math.hypot(offset.x, offset.y, offset.z);
+    const target = FIT_MARGIN * maxFitRadius(fov);
+    scale = Math.max(0.05, (target - offsetLen) / sphereR);
+  } else {
+    scale = MAXDIM_TARGET / maxDim;
+  }
+  holder.scale.setScalar(scale);
+  holder.position.set(offset.x, offset.y, offset.z);
   return holder;
 }
 
@@ -71,11 +95,12 @@ export function createSnapshotScene(
   object: THREE.Object3D,
   config?: ModelConfig,
   fov: number = BASE_FOV,
+  rotationSafe = false,
 ): SnapshotScene {
   const scene = new THREE.Scene();
   const pivot = new THREE.Group();
 
-  pivot.add(buildConfiguredHolder(object, config));
+  pivot.add(buildConfiguredHolder(object, config, fov, rotationSafe));
   scene.add(pivot);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x707784, 1.15));

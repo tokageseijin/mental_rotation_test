@@ -9,6 +9,7 @@ import { useProblemLog } from '../store/problemLogStore';
 import { RotationLegend } from '../components/RotationLegend';
 import { StepInstruction } from '../components/StepInstruction';
 import { RankMeter } from '../components/RankMeter';
+import { EnjoyControls } from '../components/EnjoyControls';
 import { RotationReplay } from '../components/RotationReplay';
 import { LocalAxisReference } from '../components/LocalAxisReference';
 import { DrawingCanvas, type DrawingCanvasHandle } from '../components/DrawingCanvas';
@@ -40,6 +41,9 @@ export function DrawingQuiz({ selected, object, config, scoring, round, onNext, 
   const logProblem = useProblemLog((s) => s.add);
   const maxDifficulty = useSettings((s) => s.maxDifficulty);
   const renderFov = useSettings((s) => s.renderFov);
+  const enjoyDifficulty = useSettings((s) => s.enjoyDifficulty);
+  const enjoyStepCount = useSettings((s) => s.enjoyStepCount);
+  const fitRotationSafe = useSettings((s) => s.fitRotationSafe);
   const recent = useMemo(() => recentPerf(history, 'drawing'), [history]);
 
   const [task, setTask] = useState<DrawingTask | null>(null);
@@ -56,14 +60,11 @@ export function DrawingQuiz({ selected, object, config, scoring, round, onNext, 
     lastKeyRef.current = key;
     setRevealed(false);
     setSelfPicked(null);
+    const enjoy = scoring === 'enjoy';
+    const target = enjoy ? enjoyDifficulty : pickTarget(modes.drawing.rating, maxDifficulty, recent);
+    const overrides = enjoy ? { stepCount: enjoyStepCount } : undefined;
     setTask(
-      generateDrawingTask(
-        selected.id,
-        object,
-        pickTarget(modes.drawing.rating, maxDifficulty, recent),
-        config,
-        renderFov,
-      ),
+      generateDrawingTask(selected.id, object, target, config, { fov: renderFov, rotationSafe: fitRotationSafe }, overrides),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, selected.id, round]);
@@ -99,14 +100,21 @@ export function DrawingQuiz({ selected, object, config, scoring, round, onNext, 
       <div className="quiz-layout">
         <section>
           <div style={{ marginBottom: 12 }}>
-            <RankMeter rating={modes.drawing.rating} />
+            {scoring === 'enjoy' ? <EnjoyControls /> : <RankMeter rating={modes.drawing.rating} />}
           </div>
           <div className="card">
             <div className="muted" style={{ marginBottom: 8 }}>
               {revealed ? '回転の再生（見本 → 正解）' : '見本（回転前）'}
             </div>
             {revealed && task ? (
-              <RotationReplay object={object} steps={task.steps} baseQ={task.baseQ} config={config} fov={renderFov} />
+              <RotationReplay
+                object={object}
+                steps={task.steps}
+                baseQ={task.baseQ}
+                config={config}
+                fov={renderFov}
+                rotationSafe={fitRotationSafe}
+              />
             ) : task ? (
               <img className="sample" src={task.baseImageUrl} alt="回転前の見本" />
             ) : (

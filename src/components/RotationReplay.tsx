@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { RotationStep } from '../types';
 import type { ModelConfig } from '../store/modelConfigStore';
 import { composeRotation } from '../three/rotation';
+import { buildConfiguredHolder } from '../three/snapshotRenderer';
 import { BASE_FOV, quizCameraDistance } from '../three/renderCamera';
 
 // Looping animation of the model rotating from the base pose through each step to
@@ -25,30 +26,7 @@ interface Props {
   baseQ: THREE.Quaternion;
   config?: ModelConfig;
   fov?: number;
-}
-
-/** Centre + normalise + apply config exactly like the snapshot framing. */
-function frameObject(object: THREE.Object3D, config?: ModelConfig): THREE.Group {
-  const model = object.clone(true);
-  if (config) {
-    const o = config.orientation;
-    model.rotation.set(
-      THREE.MathUtils.degToRad(o.x),
-      THREE.MathUtils.degToRad(o.y),
-      THREE.MathUtils.degToRad(o.z),
-    );
-    model.updateMatrixWorld(true);
-  }
-  const box = new THREE.Box3().setFromObject(model);
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  model.position.sub(center);
-  const holder = new THREE.Group();
-  holder.add(model);
-  holder.scale.setScalar(1.7 / maxDim);
-  if (config) holder.position.set(config.offset.x, config.offset.y, config.offset.z);
-  return holder;
+  rotationSafe?: boolean;
 }
 
 function easeInOut(t: number): number {
@@ -68,14 +46,21 @@ const Scene = memo(function Scene({
   orientations,
   refs,
   config,
+  fov,
+  rotationSafe,
 }: {
   object: THREE.Object3D;
   orientations: THREE.Quaternion[];
   refs: SceneRefs;
   config?: ModelConfig;
+  fov: number;
+  rotationSafe: boolean;
 }) {
   const pivot = useRef<THREE.Group>(null);
-  const holder = useMemo(() => frameObject(object, config), [object, config]);
+  const holder = useMemo(
+    () => buildConfiguredHolder(object, config, fov, rotationSafe),
+    [object, config, fov, rotationSafe],
+  );
   const scratch = useMemo(() => new THREE.Quaternion(), []);
   const N = orientations.length - 1;
 
@@ -122,7 +107,7 @@ const Scene = memo(function Scene({
   );
 });
 
-export function RotationReplay({ object, steps, baseQ, config, fov = BASE_FOV }: Props) {
+export function RotationReplay({ object, steps, baseQ, config, fov = BASE_FOV, rotationSafe = false }: Props) {
   const orientations = useMemo(() => {
     const arr = [baseQ.clone()];
     for (let i = 1; i <= steps.length; i++) arr.push(composeRotation(steps.slice(0, i), baseQ));
@@ -174,7 +159,7 @@ export function RotationReplay({ object, steps, baseQ, config, fov = BASE_FOV }:
     <div>
       <div className="replay-canvas">
         <Canvas camera={{ position: [0, 0, quizCameraDistance(fov)], fov }} dpr={[1, 2]} frameloop="always">
-          <Scene object={object} orientations={orientations} refs={refs} config={config} />
+          <Scene object={object} orientations={orientations} refs={refs} config={config} fov={fov} rotationSafe={rotationSafe} />
         </Canvas>
       </div>
       <div className="replay-controls">

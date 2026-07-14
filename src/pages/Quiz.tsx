@@ -13,6 +13,7 @@ import { useResolvedModel } from '../hooks/useResolvedModel';
 import { RotationLegend } from '../components/RotationLegend';
 import { StepInstruction } from '../components/StepInstruction';
 import { RankMeter } from '../components/RankMeter';
+import { EnjoyControls } from '../components/EnjoyControls';
 import { RotationReplay } from '../components/RotationReplay';
 import { LocalAxisReference } from '../components/LocalAxisReference';
 import { ModelThumbnail } from '../components/ModelThumbnail';
@@ -243,6 +244,9 @@ function ChoiceGame({
   const problems = useProblemLog((s) => s.records);
   const maxDifficulty = useSettings((s) => s.maxDifficulty);
   const renderFov = useSettings((s) => s.renderFov);
+  const enjoyDifficulty = useSettings((s) => s.enjoyDifficulty);
+  const enjoyStepCount = useSettings((s) => s.enjoyStepCount);
+  const fitRotationSafe = useSettings((s) => s.fitRotationSafe);
 
   const personal = useMemo(() => buildPersonalModel(problems), [problems]);
   const recent = useMemo(() => recentPerf(history, 'choice'), [history]);
@@ -257,10 +261,14 @@ function ChoiceGame({
     const key = `${selected.id}:${round}`;
     if (lastKeyRef.current === key) return; // dedupe StrictMode double-invoke
     lastKeyRef.current = key;
-    const target = pickTarget(modes.choice.rating, maxDifficulty, recent);
+    const enjoy = scoring === 'enjoy';
+    const target = enjoy ? enjoyDifficulty : pickTarget(modes.choice.rating, maxDifficulty, recent);
+    const overrides = enjoy ? { stepCount: enjoyStepCount } : undefined;
     setChosen(null);
     setResult(null);
-    setQuestion(generateQuestion(selected.id, object, target, personal, config, renderFov));
+    setQuestion(
+      generateQuestion(selected.id, object, target, personal, config, { fov: renderFov, rotationSafe: fitRotationSafe }, overrides),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, selected.id, round]);
 
@@ -303,7 +311,7 @@ function ChoiceGame({
       <div className="quiz-layout">
         <section>
           <div style={{ marginBottom: 12 }}>
-            <RankMeter rating={modes.choice.rating} />
+            {scoring === 'enjoy' ? <EnjoyControls /> : <RankMeter rating={modes.choice.rating} />}
           </div>
           <div className="card">
             <div className="muted" style={{ marginBottom: 8 }}>
@@ -316,6 +324,7 @@ function ChoiceGame({
                 baseQ={question.baseQ}
                 config={config}
                 fov={renderFov}
+                rotationSafe={fitRotationSafe}
               />
             ) : (
               <>

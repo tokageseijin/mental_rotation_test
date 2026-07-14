@@ -37,9 +37,12 @@ const ALL_ANGLES = [90, -90, 180, 45, -45, 135, -135];
 const OFFSET_DEVS = [15, 30, 45, 60, 75];
 const MATCH_SAMPLES = 28; // rejection samples per question
 
-/** A broadly-sampled challenge rotation (1–3 axes, mixed angles/frames). */
-function sampleSteps(): RotationStep[] {
-  const axisCount = 1 + rand(3);
+/**
+ * A challenge rotation. Random 1–3 operations by default, or exactly `fixedCount`
+ * when given (enjoy mode). Beyond 3 the axes may repeat (only 3 distinct axes).
+ */
+function sampleSteps(fixedCount?: number): RotationStep[] {
+  const axisCount = fixedCount != null ? Math.max(1, fixedCount) : 1 + rand(3);
   const usedAxes: Axis[] = [];
   const steps: RotationStep[] = [];
   for (let i = 0; i < axisCount; i++) {
@@ -72,12 +75,12 @@ interface MatchedConfig {
  * target (the old threshold-based planner under-produced), so a rising rating
  * yields harder, more varied questions and meaningful rewards.
  */
-function generateMatched(target: number): MatchedConfig {
+function generateMatched(target: number, stepCount?: number): MatchedConfig {
   let best: MatchedConfig | null = null;
   let bestErr = Infinity;
   for (let i = 0; i < MATCH_SAMPLES; i++) {
     const offsets = sampleOffsets();
-    const steps = sampleSteps();
+    const steps = sampleSteps(stepCount);
     const baseQ = poseFromOffsets(offsets);
     const poseDiff = poseDifficulty(offsets, steps, baseQ);
     const err = Math.abs(poseDiff - target);
@@ -191,6 +194,18 @@ function buildDistractors(
 
 // --- public API -------------------------------------------------------------
 
+/** Manual generation overrides (enjoy mode pins these instead of adapting). */
+export interface QuizOverrides {
+  /** exact number of rotation operations */
+  stepCount?: number;
+}
+
+/** How to render the images (camera FOV + rotation-safe auto-sizing). */
+export interface RenderOpts {
+  fov?: number;
+  rotationSafe?: boolean;
+}
+
 export interface GeneratedQuestion extends Question {
   minDistractorAngleRad: number;
   /** rendered image of the fixed pre-rotation pose (the "見本") */
@@ -208,7 +223,8 @@ export function generateQuestion(
   target: number,
   personal: PersonalModel = NEUTRAL_PERSONAL,
   config?: ModelConfig,
-  fov?: number,
+  render?: RenderOpts,
+  overrides?: QuizOverrides,
 ): GeneratedQuestion {
   const allowMirror = config ? !hasAnyPlaneSymmetry(config.symmetry) : false;
   // Rejection-sample on the FINAL difficulty (pose + temptation) so the realized
@@ -224,7 +240,7 @@ export function generateQuestion(
   let bestErr = Infinity;
   for (let i = 0; i < MATCH_SAMPLES; i++) {
     const offsets = sampleOffsets();
-    const steps = sampleSteps();
+    const steps = sampleSteps(overrides?.stepCount);
     const baseQ = poseFromOffsets(offsets);
     const correctQ = composeRotation(steps, baseQ);
     const feats = questionFeatures(steps, baseHasOffset(offsets));
@@ -241,7 +257,7 @@ export function generateQuestion(
   }
   const { baseQ, correctQ, steps, distractors, difficulty } = best!;
 
-  const snap = createSnapshotScene(object, config, fov);
+  const snap = createSnapshotScene(object, config, render?.fov, render?.rotationSafe);
   try {
     const baseImageUrl = renderOrientation(snap, baseQ);
     const correctOption: QuizOption = {
@@ -290,12 +306,13 @@ export function generateDrawingTask(
   object: THREE.Object3D,
   target: number,
   config?: ModelConfig,
-  fov?: number,
+  render?: RenderOpts,
+  overrides?: QuizOverrides,
 ): DrawingTask {
-  const { baseQ, steps, poseDiff } = generateMatched(target);
+  const { baseQ, steps, poseDiff } = generateMatched(target, overrides?.stepCount);
   const correctQ = composeRotation(steps, baseQ);
 
-  const snap = createSnapshotScene(object, config, fov);
+  const snap = createSnapshotScene(object, config, render?.fov, render?.rotationSafe);
   try {
     return {
       modelId,

@@ -7,8 +7,16 @@ import { downloadExport, importFromFile } from '../store/persistence';
 import { FOV_MIN, FOV_MAX } from '../three/renderCamera';
 
 export function Settings() {
-  const { defaultMode, maxDifficulty, renderFov, setDefaultMode, setMaxDifficulty, setRenderFov } =
-    useSettings();
+  const {
+    defaultMode,
+    maxDifficulty,
+    renderFov,
+    fitRotationSafe,
+    setDefaultMode,
+    setMaxDifficulty,
+    setRenderFov,
+    setFitRotationSafe,
+  } = useSettings();
   const resetProfile = useProfile((s) => s.reset);
   const resetRanks = useProfile((s) => s.resetRanks);
   const problemLog = useProblemLog((s) => s.records);
@@ -89,6 +97,19 @@ export function Settings() {
         <p className="muted">
           クイズの見本・選択肢・回転再生を描くカメラの画角です。小さいほど遠近感が弱く（望遠寄りで平ら）、
           大きいほど強くなります。被写体の大きさは一定に保たれます。既定は35°。
+        </p>
+
+        <label className="check" style={{ marginTop: 20 }}>
+          <input
+            type="checkbox"
+            checked={fitRotationSafe}
+            onChange={(e) => setFitRotationSafe(e.target.checked)}
+          />
+          回転してもはみ出さないよう表示サイズを自動調整
+        </label>
+        <p className="muted">
+          どの角度に回転してもモデルがフレーム外に出ないよう、現在の画角に合わせて表示サイズを自動で縮めます。
+          オフにすると従来どおり最大辺基準（大きく表示されますが、回転ではみ出すことがあります）。
         </p>
       </div>
 

@@ -362,6 +362,62 @@
   }
 }
 
+/* enjoy-mode controls — occupy the RankMeter's slot (same width/rough height) */
+.enjoy-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-4);
+  max-width: var(--sample-size);
+}
+.ec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ec-field input[type='range'] {
+  width: 100%;
+}
+.ec-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.ec-label .ec-val {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.ec-steps {
+  display: flex;
+  gap: 4px;
+}
+.ec-step {
+  appearance: none;
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid var(--ink-300);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--ink-900);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ec-step:hover {
+  background: var(--surface-sunken);
+}
+.ec-step.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
 /* rotation replay canvas — same footprint as the sample image */
 .replay-canvas {
   width: 100%;
